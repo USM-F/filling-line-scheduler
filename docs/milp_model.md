@@ -266,7 +266,7 @@ Python 3.11.15, HiGHS 1.11.0, Linux x86_64, один поток, seed 0, gap 0.
 расписание прошло проверку внутри solve и отдельной командой validate.
 Время и качество последнего прохода могут меняться с производительностью машины.
 
-Сохранённые результаты: [JSON](baseline.json), [HTML Gantt](baseline.html),
-[metrics](baseline.metrics.json), [журнал HiGHS](baseline.highs.log).
-Поле `highs_log` в metrics сохраняет исходный путь диагностического файла;
-соседний `baseline.highs.log` — его копия для просмотра вместе с документом.
+После запуска baseline результаты находятся в `output/`: [JSON](../output/baseline.json),
+[HTML Gantt](../output/baseline.html), [metrics](../output/baseline.metrics.json).
+Путь журнала HiGHS указан в поле `highs_log` файла metrics.
+Артефакты генерируются локально и не хранятся в Git; в CI они доступны в диагностических артефактах.
