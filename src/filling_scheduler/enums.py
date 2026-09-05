@@ -66,6 +66,11 @@ class SolverStatus(StrEnum):
     FEASIBLE = "FEASIBLE"
 
 
+class ObjectiveMode(StrEnum):
+    LEXICOGRAPHIC = "lexicographic"
+    WEIGHTED = "weighted"
+
+
 class ObjectiveName(StrEnum):
     CHANGEOVER = "changeover_ticks"
     SPLIT = "split_excess"

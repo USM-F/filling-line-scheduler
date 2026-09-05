@@ -7,7 +7,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveName
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.gantt import render_html
 from filling_scheduler.input import load_document, load_input
@@ -75,6 +75,9 @@ def check_schedule(problem, schedule):
 
 
 def solve_command(args, run_id: str, log_file: Path) -> dict:
+    from filling_scheduler.milp import SchedulingMilp, validate_objective_options
+    mode, weights = validate_objective_options(args.objective_mode, args.objective_weights)
+    weight_summary = dict(zip(ObjectiveName, weights)) if weights is not None else None
     if args.decomposition or args.workers != 1 or args.work_dir is not None or args.keep_work_dir:
         raise ApplicationError(ErrorCode.CLI_ERROR, "Decomposition and workers are not supported by the monolithic model")
     if not 0 <= args.seed <= 2147483647:
@@ -85,12 +88,12 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     check_outputs([args.output, html_path, metrics_path, native_log], [args.input, log_file], force=args.force)
     started = perf_counter()
     problem = prepare_input(args.input)
-    from filling_scheduler.milp import SchedulingMilp
     with timed_stage(StageName.MILP_BUILD):
         model = SchedulingMilp(problem)
     with timed_stage(StageName.MILP_SOLVE):
         result = model.solve(time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
-                             seed=args.seed, threads=args.threads_per_worker, log_path=native_log)
+                             seed=args.seed, threads=args.threads_per_worker, log_path=native_log,
+                             objective_mode=mode, objective_weights=weights)
     with timed_stage(StageName.MATERIALIZE):
         schedule = materialize_schedule(problem, result, f"{problem.source.id}-{run_id}")
     report = check_schedule(problem, schedule)
@@ -100,16 +103,19 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     html = checked_html(schedule)
     metrics = {"scheduleId": schedule.schedule_id, "status": result.status, "independently_validated": True,
                "objectives": result.objectives, "passes": result.passes, "model": result.model,
+               "weighted_value": result.weighted_value,
                "solver_elapsed_ms": result.elapsed_ms, "pipeline_elapsed_ms": (perf_counter()-started)*1000,
                "settings": {"time_limit_seconds": args.time_limit_seconds, "mip_gap": args.mip_gap,
-                            "threads": args.threads_per_worker, "seed": args.seed},
+                            "threads": args.threads_per_worker, "seed": args.seed,
+                            "objective_mode": mode, "objective_weights": weight_summary},
                "environment": {"python": platform.python_version(), "highspy": version("highspy"),
                                "architecture": platform.machine(), "platform": platform.platform()},
                "highs_log": str(native_log) if native_log.exists() else None, "summary": report["summary"]}
     with timed_stage(StageName.JSON_DUMP):
         publish_artifacts([(metrics_path, encode_report(metrics)), (html_path, html),
                            (args.output, schedule.model_dump_json(by_alias=True, indent=2) + "\n")], force=args.force)
-    response = {"status": result.status, "output": str(args.output), "html": str(html_path),
+    response = {"status": result.status, "objective_mode": mode, "objective_weights": weight_summary,
+                "weighted_value": result.weighted_value, "output": str(args.output), "html": str(html_path),
                 "metrics": str(metrics_path), "objectives": result.objectives, "summary": report["summary"]}
     logger.info(EventName.REPORT_WRITTEN, extra={"fields": response})
     return response

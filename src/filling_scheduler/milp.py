@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from time import perf_counter
 
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, SolverStatus
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, ObjectiveMode, SolverStatus
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.problem import Problem
 
@@ -32,6 +32,23 @@ class SolveResult:
     passes: list[dict]
     model: dict[str, int]
     elapsed_ms: float
+    weighted_value: float | None = None
+
+
+def validate_objective_options(mode, weights):
+    try:
+        mode = ObjectiveMode(mode)
+    except ValueError as exc:
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Unknown objective mode") from exc
+    if mode == ObjectiveMode.LEXICOGRAPHIC:
+        if weights is not None:
+            raise ApplicationError(ErrorCode.CLI_ERROR, "Objective weights require weighted mode")
+        return mode, None
+    if weights is None or len(weights) != 4:
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Weighted mode requires four explicit objective weights")
+    if any(not math.isfinite(w) or w < 0 for w in weights) or not any(weights):
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Weights must be finite, nonnegative, and not all zero")
+    return mode, tuple(weights)
 
 
 def proven_integer_optimum(value: float, bound: float) -> bool:
@@ -155,7 +172,22 @@ class SchedulingMilp:
         return runs
 
     def solve(self, *, time_limit: float = 300, mip_gap: float = 0, seed: int = 0,
-              threads: int = 1, log_path: Path | None = None) -> SolveResult:
+              threads: int = 1, log_path: Path | None = None,
+              objective_mode: ObjectiveMode = ObjectiveMode.LEXICOGRAPHIC,
+              objective_weights: tuple[float, ...] | None = None) -> SolveResult:
+        objective_mode, weights = validate_objective_options(objective_mode, objective_weights)
+        weighted = objective_mode == ObjectiveMode.WEIGHTED
+        expressions = self.objectives
+        weighted_offset = 0.0
+        if weighted:
+            combined = {}
+            for weight, expression in zip(weights, self.objectives.values()):
+                for index, coefficient in expression.items():
+                    combined[index] = combined.get(index, 0.0) + weight * coefficient
+            weighted_offset = -weights[1] * len(self.problem.demand)
+            if not math.isfinite(weighted_offset) or any(not math.isfinite(c) for c in combined.values()):
+                raise ApplicationError(ErrorCode.CLI_ERROR, "Weights overflow objective coefficients")
+            expressions = {ObjectiveMode.WEIGHTED: {i: c for i, c in combined.items() if c}}
         import highspy
         import numpy as np
 
@@ -166,7 +198,8 @@ class SchedulingMilp:
                  "eligible_pairs": len(self.variables), "route_arcs": len(self.arcs),
                  "work_windows": len(self.problem.windows)}
         if not self.problem.demand:
-            return SolveResult([], SolverStatus.OPTIMAL, {key: 0 for key in ObjectiveName}, [], model, 0)
+            return SolveResult([], SolverStatus.OPTIMAL, {key: 0 for key in ObjectiveName}, [], model, 0,
+                               0.0 if weighted else None)
         # HiGHS keeps a process-global thread pool. Sequential CLI calls may request a different size.
         highspy.Highs.resetGlobalScheduler(True)
         h = highspy.Highs()
@@ -176,6 +209,9 @@ class SchedulingMilp:
         for key, value in {"threads": threads, "random_seed": seed, "mip_rel_gap": mip_gap,
                            "mip_abs_gap": 0.0, "log_to_console": False, "output_flag": log_path is not None}.items():
             checked(h.setOptionValue(key, value))
+        if weighted:
+            # Include the split constant in the native objective so value, bound and gap share the same scale.
+            checked(h.changeObjectiveOffset(weighted_offset))
         if log_path is not None:
             try:
                 log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -199,7 +235,7 @@ class SchedulingMilp:
                           np.array(columns, dtype=np.int32), np.array(coefficients, dtype=float)))
         passes = []
         best = None
-        for objective, expression in self.objectives.items():
+        for objective, expression in expressions.items():
             remaining = time_limit - (perf_counter() - started)
             if remaining <= 0:
                 break
@@ -223,8 +259,14 @@ class SchedulingMilp:
                 best = solution
             value = sum(coefficient * solution.col_value[index] for index, coefficient in expression.items()) if feasible else None
             bound = info.mip_dual_bound if math.isfinite(info.mip_dual_bound) else None
-            proven = feasible and bound is not None and proven_integer_optimum(value, bound)
-            offset = -len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0
+            if weighted:
+                # Fractional weights destroy the unit integer lattice: never round the dual bound upward.
+                proven = feasible and bound is not None and status == highspy.HighsModelStatus.kOptimal and info.mip_gap == 0.0
+                value = value + weighted_offset if value is not None else None
+                offset = 0
+            else:
+                proven = feasible and bound is not None and proven_integer_optimum(value, bound)
+                offset = -len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0
             record = {"objective": objective, "highs_status": status.name, "proven_optimal": proven,
                       "value": value + offset if value is not None else None,
                       "bound": bound + offset if bound is not None else None,
@@ -236,7 +278,7 @@ class SchedulingMilp:
                 if best is not None:
                     raise ApplicationError(ErrorCode.SOLVER_ERROR, "Objective fixing lost a feasible solution", ExitCode.INTERNAL_ERROR)
                 raise ApplicationError(ErrorCode.INFEASIBLE, "MILP is infeasible", ExitCode.INFEASIBLE, details=passes)
-            if not proven:
+            if weighted or not proven:
                 break
             checked(h.addRow(round(value), round(value), len(expression),
                              np.array(list(expression), dtype=np.int32), np.array(list(expression.values()), dtype=float)))
@@ -249,5 +291,6 @@ class SchedulingMilp:
             ObjectiveName.MAKESPAN: max((r.end for r in runs), default=0),
             ObjectiveName.STARTS: sum(r.start for r in runs),
         }
-        status = SolverStatus.OPTIMAL if len(passes) == 4 and all(p["proven_optimal"] for p in passes) else SolverStatus.FEASIBLE
-        return SolveResult(runs, status, objectives, passes, model, (perf_counter() - started) * 1000)
+        status = SolverStatus.OPTIMAL if len(passes) == len(expressions) and all(p["proven_optimal"] for p in passes) else SolverStatus.FEASIBLE
+        weighted_value = sum(w * objectives[name] for w, name in zip(weights, ObjectiveName)) if weighted else None
+        return SolveResult(runs, status, objectives, passes, model, (perf_counter() - started) * 1000, weighted_value)

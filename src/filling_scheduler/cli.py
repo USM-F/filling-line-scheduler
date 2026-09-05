@@ -9,7 +9,7 @@ from time import perf_counter_ns
 from uuid import uuid4
 
 from filling_scheduler import __version__, config
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveMode
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.input import load_input
 from filling_scheduler.report import encode_report, write_report
@@ -77,6 +77,10 @@ def build_parser() -> ArgumentParser:
     solve.add_argument("--time-limit-seconds", type=lambda value: finite_float(value, positive=True), default=config.DEFAULT_TIME_LIMIT_SECONDS)
     solve.add_argument("--mip-gap", type=finite_float, default=config.DEFAULT_MIP_GAP)
     solve.add_argument("--seed", type=int, default=config.DEFAULT_SEED)
+    solve.add_argument("--objective-mode", choices=list(ObjectiveMode), default=ObjectiveMode.LEXICOGRAPHIC,
+                       help="Objective policy (default: lexicographic)")
+    solve.add_argument("--objective-weights", nargs=4, type=finite_float, metavar=("F1", "F2", "F3", "F4"),
+                       help="Required in weighted mode: changeover ticks, extra assignments, makespan ticks, start sum ticks")
     solve.add_argument("--html-output", type=Path)
     solve.add_argument("--work-dir", type=Path)
     solve.add_argument("--keep-work-dir", action="store_true")

@@ -86,7 +86,7 @@ def test_infeasible_and_no_incumbent():
     assert error.value.exit_code == 4
 
 
-def brute_force(demand, windows, units, setup):
+def brute_force(demand, windows, units, setup, weights=None):
     """Independent integer allocation/order enumeration and minute-by-minute calendar."""
     best = None
     work = {tick for a, b in windows for tick in range(a, b)}
@@ -116,7 +116,9 @@ def brute_force(demand, windows, units, setup):
                     previous = sku
                 finish = max(finish, tick)
             value = changes, runs - len(demand), finish, starts
-            if feasible and (best is None or value < best):
+            def score(value):
+                return sum(w*v for w, v in zip(weights, value)) if weights is not None else value
+            if feasible and (best is None or score(value) < score(best)):
                 best = value
     return best
 
@@ -132,3 +134,56 @@ def test_independent_enumeration(demand, units):
         assert error.value.exit_code == 3
     else:
         assert tuple(solve(data).objectives.values()) == expected
+
+
+@pytest.mark.parametrize("split_weight,quantities,makespan", [(1, [40, 40], 40), (100, [80], 80)])
+def test_weighted_split_tradeoff(split_weight, quantities, makespan):
+    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example({"A": 80}))))
+    result = model.solve(objective_mode="weighted", objective_weights=(1, split_weight, 1, 0))
+    assert result.status == "OPTIMAL"
+    assert sorted(r.quantity for r in result.runs) == quantities
+    assert result.objectives["makespan_ticks"] == makespan
+    assert len(result.passes) == 1
+    assert result.passes[0]["objective"] == "weighted"
+    assert result.weighted_value == split_weight * (len(quantities)-1) + makespan
+    assert result.passes[0]["value"] == pytest.approx(result.weighted_value)
+    assert result.passes[0]["bound"] == pytest.approx(result.weighted_value)
+
+
+@pytest.mark.parametrize("weights", [(0.3, 0.2, 0.01, 0.005), (0, 0, 0.1, 0), (1, 0, 0, 0), (0, 1, 0, 0)])
+def test_weighted_independent_enumeration(weights):
+    demand = {"A": 9, "B": 8}
+    data = example(demand, capacity=8, units=2)
+    data["calendar"]["shifts"][0]["breaks"] = [{"startTime": "08:03", "endTime": "08:05"}]
+    expected = brute_force(demand, [(0, 3), (5, 8)], 2, data["changeoverMatrixMinutes"], weights)
+    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(data)))
+    result = model.solve(objective_mode="weighted", objective_weights=weights)
+    assert result.status == "OPTIMAL"
+    assert result.weighted_value == pytest.approx(sum(w*v for w, v in zip(weights, expected)))
+    assert result.passes[0]["value"] == pytest.approx(result.weighted_value)
+
+
+def test_weighted_empty_demand_and_no_incumbent():
+    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example({"A": 0}))))
+    assert model.solve(objective_mode="weighted", objective_weights=(1, 1, 1, 1)).weighted_value == 0
+    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example())))
+    with pytest.raises(ApplicationError) as error:
+        model.solve(time_limit=0, objective_mode="weighted", objective_weights=(1, 1, 1, 1))
+    assert error.value.exit_code == 4
+
+
+def test_weighted_uses_input_time_grid():
+    data = example({"A": 80})
+    data["planningHorizon"]["precisionMinutes"] = 10
+    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(data)))
+    result = model.solve(objective_mode="weighted", objective_weights=(1, 1, 1, 0))
+    assert sorted(r.quantity for r in result.runs) == [40, 40]
+    assert result.objectives["makespan_ticks"] == 4
+    assert result.weighted_value == 5
+
+
+def test_weight_overflow_is_input_error():
+    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example({"A": 1, "B": 1}))))
+    with pytest.raises(ApplicationError) as error:
+        model.solve(objective_mode="weighted", objective_weights=(1e308, 0, 0, 0))
+    assert error.value.exit_code == 2

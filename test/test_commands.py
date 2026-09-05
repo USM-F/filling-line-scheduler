@@ -78,7 +78,8 @@ def test_no_incumbent_and_infeasible(command_case, capsys):
     assert not capsys.readouterr().out
 
 
-def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys):
+@pytest.mark.parametrize("extra", [[], ["--objective-mode", "weighted", "--objective-weights", "1", "1", "0.1", "0.01"]])
+def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys, extra):
     # Simulate a time-limit response around a real native incumbent, without flaky wall-clock races.
     import highspy
     class LimitedHighs(highspy.Highs):
@@ -91,7 +92,7 @@ def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys):
             info.mip_gap = float("inf")
             return info
     monkeypatch.setattr(highspy, "Highs", LimitedHighs)
-    assert main(command_case) == 0
+    assert main([*command_case, *extra]) == 0
     response = json.loads(capsys.readouterr().out)
     assert response["status"] == "FEASIBLE"
     metrics = json.loads(Path(response["metrics"]).read_text())
@@ -124,3 +125,54 @@ def test_thread_count_can_change_between_commands(command_case):
     assert main(command_case) == 0
     assert main([*command_case, "--threads-per-worker", "2", "--force"]) == 0
     assert main([*command_case, "--threads-per-worker", "1", "--force"]) == 0
+
+
+def test_weighted_cli_and_metrics(command_case, capsys):
+    assert main([*command_case, "--objective-mode", "weighted", "--objective-weights", "1", "30", "0.1", "0.01"]) == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response["objective_mode"] == "weighted"
+    weights = response["objective_weights"]
+    assert list(weights.values()) == [1, 30, 0.1, 0.01]
+    assert response["weighted_value"] == pytest.approx(sum(weights[k]*v for k,v in response["objectives"].items()))
+    metrics = json.loads(Path(response["metrics"]).read_text())
+    assert metrics["settings"]["objective_mode"] == "weighted"
+    assert metrics["settings"]["objective_weights"] == weights
+    assert metrics["weighted_value"] == response["weighted_value"]
+    assert metrics["independently_validated"]
+    assert len(metrics["passes"]) == 1
+    assert Path(response["html"]).exists()
+    assert main(["validate", "--input", command_case[2], "--schedule", response["output"]]) == 0
+
+
+@pytest.mark.parametrize("extra", [
+    ["--objective-mode", "invalid"],
+    ["--objective-mode", "weighted"],
+    ["--objective-weights", "1", "1", "1", "1"],
+    ["--objective-mode", "weighted", "--objective-weights", "1", "1", "1"],
+    *[["--objective-mode", "weighted", "--objective-weights", value, "0", "0", "0"]
+      for value in ("0", "-1", "nan", "inf", "bad")],
+])
+def test_invalid_objective_options(command_case, extra, capsys):
+    assert main([*command_case, *extra]) == 2
+    assert not capsys.readouterr().out
+    assert not Path("output").exists()
+    records = [json.loads(line) for path in Path(".logs").glob("*.jsonl") for line in path.read_text().splitlines()]
+    assert records[-1]["error_code"] == "CLI_ERROR"
+
+
+def test_fractional_weighted_gap_is_not_integer_proof(command_case, monkeypatch, capsys):
+    import highspy
+    class GapHighs(highspy.Highs):
+        def getInfo(self):
+            info = super().getInfo()
+            info.mip_dual_bound = info.objective_function_value - 0.01
+            info.mip_gap = 0.01 / abs(info.objective_function_value)
+            return info
+    monkeypatch.setattr(highspy, "Highs", GapHighs)
+    # HiGHS may return kOptimal when a nonzero requested gap is reached.
+    assert main([*command_case, "--objective-mode", "weighted", "--objective-weights", "0", "0", "0.1", "0", "--mip-gap", "0.1"]) == 0
+    response = json.loads(capsys.readouterr().out)
+    assert response["status"] == "FEASIBLE"
+    metrics = json.loads(Path(response["metrics"]).read_text())
+    assert not metrics["passes"][0]["proven_optimal"]
+    assert metrics["passes"][0]["gap"] > 0
