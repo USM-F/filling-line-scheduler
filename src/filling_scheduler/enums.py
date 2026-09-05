@@ -55,6 +55,7 @@ class EventName(StrEnum):
 
 
 class StageName(StrEnum):
+    LEFT_SHIFT = "left_shift"
     DECOMPOSE = "decompose"
     MERGE = "merge"
     PREPARE_PROBLEM = "prepare_problem"
@@ -76,6 +77,12 @@ class SolverStatus(StrEnum):
 class ObjectiveMode(StrEnum):
     LEXICOGRAPHIC = "lexicographic"
     WEIGHTED = "weighted"
+
+
+class TimingMode(StrEnum):
+    HEURISTIC = "heuristic"
+    EXACT = "exact"
+    NONE = "none"
 
 
 class ObjectiveName(StrEnum):

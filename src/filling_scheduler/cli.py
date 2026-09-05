@@ -9,7 +9,7 @@ from time import perf_counter_ns
 from uuid import uuid4
 
 from filling_scheduler import __version__, config
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveMode
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveMode, TimingMode
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.input import load_input
 from filling_scheduler.report import encode_report, write_report
@@ -71,7 +71,7 @@ def build_parser() -> ArgumentParser:
     solve = commands.add_parser("solve", help="Schedule production using MILP", allow_abbrev=False)
     solve.add_argument("--input", required=True, type=Path)
     solve.add_argument("--output", required=True, type=Path)
-    solve.add_argument("--decomposition", action="store_true")
+    solve.add_argument("--decomposition", action="store_true", help="Solve independent components sequentially (lexicographic only)")
     solve.add_argument("--workers", type=positive_int, default=config.DEFAULT_WORKERS)
     solve.add_argument("--threads-per-worker", type=positive_int, default=config.DEFAULT_THREADS_PER_WORKER)
     solve.add_argument("--time-limit-seconds", type=lambda value: finite_float(value, positive=True), default=config.DEFAULT_TIME_LIMIT_SECONDS)
@@ -79,6 +79,8 @@ def build_parser() -> ArgumentParser:
     solve.add_argument("--seed", type=int, default=config.DEFAULT_SEED)
     solve.add_argument("--objective-mode", choices=list(ObjectiveMode), default=ObjectiveMode.LEXICOGRAPHIC,
                        help="Objective policy (default: lexicographic)")
+    solve.add_argument("--timing-mode", choices=list(TimingMode),
+                       help="Lexicographic timing: heuristic (default), exact four objectives, or none; weighted uses exact")
     solve.add_argument("--objective-weights", nargs=4, type=finite_float, metavar=("F1", "F2", "F3", "F4"),
                        help="Required in weighted mode: changeover ticks, extra assignments, makespan ticks, start sum ticks")
     solve.add_argument("--working-changeover-weight", type=finite_float, default=0.0,

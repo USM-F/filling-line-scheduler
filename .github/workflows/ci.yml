@@ -22,7 +22,7 @@ jobs:
           ./scripts/run.sh inspect
           --input test/data/filling_only_20_product_assignment_input.json
           --report output/inspection.json --debug
-      - name: Solve and validate the 20-product baseline
+      - name: Compare monolithic and sequential decomposed baselines (300s each)
         run: ./scripts/run_tests.sh -m baseline --no-cov
       - name: Verify Docker lifecycle and offline execution
         run: ./scripts/run_tests.sh --smoke

@@ -358,10 +358,12 @@ class SchedulingMilp:
     def solve(self, *, time_limit: float = 300, mip_gap: float = 0, seed: int = 0,
               threads: int = 1, log_path: Path | None = None,
               objective_mode: ObjectiveMode = ObjectiveMode.LEXICOGRAPHIC,
-              objective_weights: tuple[float, ...] | None = None) -> SolveResult:
+              objective_weights: tuple[float, ...] | None = None,
+              optimize_timing: bool = True) -> SolveResult:
         objective_mode, weights = validate_objective_options(objective_mode, objective_weights, self.working_changeover_weight)
         weighted = objective_mode == ObjectiveMode.WEIGHTED
-        expressions = self.objectives
+        expressions = {key: expression for key, expression in self.objectives.items()
+                       if optimize_timing or key in (ObjectiveName.CHANGEOVER, ObjectiveName.SPLIT)}
         if weighted:
             combined = {}
             for weight, expression in zip(weights, self.objectives.values()):

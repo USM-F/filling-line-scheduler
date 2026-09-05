@@ -90,7 +90,7 @@ def merge_runs(problem: Problem, components: list[Component], results: dict[str,
 
 
 def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, threads=1,
-                     log_path: Path | None = None) -> SolveResult:
+                     log_path: Path | None = None, optimize_timing=True) -> SolveResult:
     with timed_stage(StageName.DECOMPOSE):
         components = build_components(problem)
     diagnostics = {"components": [], "stop_reason": None, "time_limit_seconds": time_limit}
@@ -110,7 +110,8 @@ def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, thr
     global_passes = []
     reason = "optimal"
     try:
-        for objective in ObjectiveName:
+        objectives = list(ObjectiveName) if optimize_timing else [ObjectiveName.CHANGEOVER, ObjectiveName.SPLIT]
+        for objective in objectives:
             records = [None] * len(models)
             pending = list(range(len(models)))
             gap_reached = False
@@ -165,7 +166,7 @@ def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, thr
         with timed_stage(StageName.MERGE):
             runs = merge_runs(problem, components, {c.component_id: m.extract(v) for c, m, v in zip(components, models, best)})
         for entry, model, values in zip(diagnostics["components"], models, best):
-            entry["objectives"] = model.objective_values(values)
+            entry["solver_objectives"] = model.objective_values(values)
             entry["solver_elapsed_ms"] = sum(p["elapsed_ms"] for p in entry["passes"])
         sizes = [entry["model"] for entry in diagnostics["components"]]
         size = {key: sum(s[key] for s in sizes) for key in ("columns", "rows", "binaries", "integers", "nonzeros", "eligible_pairs", "route_arcs")}
