@@ -1,0 +1,988 @@
+{
+  "id": "filling_only_20_product_assignment_v1",
+  "description": "Simplified anonymized filling-line scheduling assignment. Products and lines are masked. Line capacities are effective production rates in units per hour.",
+  "planningHorizon": {
+    "start": "2026-08-17T08:30:00+07:00",
+    "end": "2026-08-24T08:30:00+07:00",
+    "timeZone": "Asia/Bangkok",
+    "precisionMinutes": 1
+  },
+  "demand": [
+    {
+      "product": "A",
+      "quantityUnits": 49344
+    },
+    {
+      "product": "B",
+      "quantityUnits": 67104
+    },
+    {
+      "product": "C",
+      "quantityUnits": 54168
+    },
+    {
+      "product": "D",
+      "quantityUnits": 63408
+    },
+    {
+      "product": "E",
+      "quantityUnits": 47712
+    },
+    {
+      "product": "F",
+      "quantityUnits": 59808
+    },
+    {
+      "product": "G",
+      "quantityUnits": 42048
+    },
+    {
+      "product": "H",
+      "quantityUnits": 65472
+    },
+    {
+      "product": "I",
+      "quantityUnits": 55752
+    },
+    {
+      "product": "J",
+      "quantityUnits": 61440
+    },
+    {
+      "product": "K",
+      "quantityUnits": 50208
+    },
+    {
+      "product": "L",
+      "quantityUnits": 46056
+    },
+    {
+      "product": "M",
+      "quantityUnits": 67872
+    },
+    {
+      "product": "N",
+      "quantityUnits": 53352
+    },
+    {
+      "product": "O",
+      "quantityUnits": 59022
+    },
+    {
+      "product": "P",
+      "quantityUnits": 44472
+    },
+    {
+      "product": "Q",
+      "quantityUnits": 73560
+    },
+    {
+      "product": "R",
+      "quantityUnits": 51744
+    },
+    {
+      "product": "S",
+      "quantityUnits": 56646
+    },
+    {
+      "product": "T",
+      "quantityUnits": 64704
+    }
+  ],
+  "lines": [
+    {
+      "line": "L1",
+      "eligibleProducts": [
+        {
+          "product": "A",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "B",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "M",
+          "capacityUnitsPerHour": 9600
+        }
+      ]
+    },
+    {
+      "line": "L2",
+      "eligibleProducts": [
+        {
+          "product": "A",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "B",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "C",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "D",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "F",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "I",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "J",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "K",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "L",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "M",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "P",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "Q",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "R",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    },
+    {
+      "line": "L3",
+      "eligibleProducts": [
+        {
+          "product": "C",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "D",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "F",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "I",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "J",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "K",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "L",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "P",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "Q",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "R",
+          "capacityUnitsPerHour": 9600
+        }
+      ]
+    },
+    {
+      "line": "L4",
+      "eligibleProducts": [
+        {
+          "product": "E",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "N",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "O",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "S",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "T",
+          "capacityUnitsPerHour": 9600
+        }
+      ]
+    },
+    {
+      "line": "L5",
+      "eligibleProducts": [
+        {
+          "product": "G",
+          "capacityUnitsPerHour": 4320
+        }
+      ]
+    },
+    {
+      "line": "L6",
+      "eligibleProducts": [
+        {
+          "product": "C",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "D",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "F",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "I",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "J",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "K",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "L",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "P",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "Q",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "R",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    },
+    {
+      "line": "L7",
+      "eligibleProducts": [
+        {
+          "product": "C",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "D",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "F",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "I",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "J",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "K",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "L",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "P",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "Q",
+          "capacityUnitsPerHour": 11520
+        },
+        {
+          "product": "R",
+          "capacityUnitsPerHour": 11520
+        }
+      ]
+    },
+    {
+      "line": "L8",
+      "eligibleProducts": [
+        {
+          "product": "C",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "D",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "F",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "I",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "J",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "K",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "L",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "P",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "Q",
+          "capacityUnitsPerHour": 9600
+        },
+        {
+          "product": "R",
+          "capacityUnitsPerHour": 9600
+        }
+      ]
+    },
+    {
+      "line": "L9",
+      "eligibleProducts": [
+        {
+          "product": "A",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "B",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "M",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    },
+    {
+      "line": "L10",
+      "eligibleProducts": [
+        {
+          "product": "C",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "D",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "F",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "I",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "J",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "K",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "L",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "P",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "Q",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "R",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    },
+    {
+      "line": "L11",
+      "eligibleProducts": [
+        {
+          "product": "A",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "B",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "M",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    },
+    {
+      "line": "L12",
+      "eligibleProducts": [
+        {
+          "product": "H",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    },
+    {
+      "line": "L13",
+      "eligibleProducts": [
+        {
+          "product": "E",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "N",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "O",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "S",
+          "capacityUnitsPerHour": 5760
+        },
+        {
+          "product": "T",
+          "capacityUnitsPerHour": 5760
+        }
+      ]
+    }
+  ],
+  "calendar": {
+    "appliesToLines": [
+      "L1",
+      "L2",
+      "L3",
+      "L4",
+      "L5",
+      "L6",
+      "L7",
+      "L8",
+      "L9",
+      "L10",
+      "L11",
+      "L12",
+      "L13"
+    ],
+    "workingDays": [
+      "MONDAY",
+      "TUESDAY",
+      "WEDNESDAY",
+      "THURSDAY",
+      "FRIDAY",
+      "SATURDAY"
+    ],
+    "shifts": [
+      {
+        "code": "DAY",
+        "startTime": "08:30",
+        "endTime": "19:00",
+        "breaks": [
+          {
+            "startTime": "12:30",
+            "endTime": "13:30"
+          }
+        ]
+      },
+      {
+        "code": "NIGHT",
+        "startTime": "20:30",
+        "endTime": "07:00",
+        "endsNextDay": true,
+        "breaks": [
+          {
+            "startTime": "00:30",
+            "endTime": "01:30",
+            "startsNextDay": true
+          }
+        ]
+      }
+    ]
+  },
+  "changeoverMatrixMinutes": {
+    "A": {
+      "A": 0,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "B": {
+      "A": 30,
+      "B": 0,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "C": {
+      "A": 30,
+      "B": 30,
+      "C": 0,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "D": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 0,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "E": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 0,
+      "F": 30,
+      "G": 60,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 60,
+      "O": 60,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 60,
+      "T": 30
+    },
+    "F": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 0,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "G": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 60,
+      "F": 30,
+      "G": 0,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 60,
+      "O": 60,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 60,
+      "T": 60
+    },
+    "H": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 0,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "I": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 0,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "J": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 0,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "K": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 0,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "L": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 0,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "M": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 0,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "N": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 60,
+      "F": 30,
+      "G": 60,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 0,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 60
+    },
+    "O": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 60,
+      "F": 30,
+      "G": 60,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 0,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 60
+    },
+    "P": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 0,
+      "Q": 30,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "Q": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 0,
+      "R": 30,
+      "S": 30,
+      "T": 30
+    },
+    "R": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 30,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 0,
+      "S": 30,
+      "T": 30
+    },
+    "S": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 60,
+      "F": 30,
+      "G": 60,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 30,
+      "O": 30,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 0,
+      "T": 60
+    },
+    "T": {
+      "A": 30,
+      "B": 30,
+      "C": 30,
+      "D": 30,
+      "E": 30,
+      "F": 30,
+      "G": 60,
+      "H": 30,
+      "I": 30,
+      "J": 30,
+      "K": 30,
+      "L": 30,
+      "M": 30,
+      "N": 60,
+      "O": 60,
+      "P": 30,
+      "Q": 30,
+      "R": 30,
+      "S": 60,
+      "T": 0
+    }
+  }
+}
