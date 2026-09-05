@@ -17,6 +17,13 @@ class ExitCode(IntEnum):
 
 
 class ErrorCode(StrEnum):
+    PROBLEM_INVALID = "PROBLEM_INVALID"
+    UNSUPPORTED_PRECISION = "UNSUPPORTED_PRECISION"
+    INFEASIBLE = "INFEASIBLE"
+    NO_INCUMBENT = "NO_INCUMBENT"
+    SOLVER_ERROR = "SOLVER_ERROR"
+    SCHEDULE_INVALID = "SCHEDULE_INVALID"
+    RENDER_ERROR = "RENDER_ERROR"
     NOT_IMPLEMENTED = "NOT_IMPLEMENTED"
     CLI_ERROR = "CLI_ERROR"
     INPUT_READ_ERROR = "INPUT_READ_ERROR"
@@ -30,6 +37,8 @@ class ErrorCode(StrEnum):
 
 
 class EventName(StrEnum):
+    SOLVE_PASS_COMPLETED = "solve_pass_completed"
+    SCHEDULE_VALIDATED = "schedule_validated"
     COMMAND_STARTED = "command_started"
     COMMAND_PARAMETERS = "command_parameters"
     INSPECTION_COMPLETED = "inspection_completed"
@@ -41,6 +50,24 @@ class EventName(StrEnum):
 
 
 class StageName(StrEnum):
+    PREPARE_PROBLEM = "prepare_problem"
+    MILP_BUILD = "milp_build"
+    MILP_SOLVE = "milp_solve"
+    MATERIALIZE = "materialize"
+    VALIDATE_SCHEDULE = "validate_schedule"
+    HTML_RENDER = "html_render"
     LOAD_INPUT = "load_input"
     INSPECT_INPUT = "inspect_input"
     JSON_DUMP = "json_dump"
+
+
+class SolverStatus(StrEnum):
+    OPTIMAL = "OPTIMAL"
+    FEASIBLE = "FEASIBLE"
+
+
+class ObjectiveName(StrEnum):
+    CHANGEOVER = "changeover_ticks"
+    SPLIT = "split_excess"
+    MAKESPAN = "makespan_ticks"
+    STARTS = "start_sum_ticks"
