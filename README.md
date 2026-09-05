@@ -96,6 +96,11 @@ Metrics содержат состав компонент, локальные п�
 Baseline запускает монолитный и декомпозированный режимы, каждому даёт 300 секунд.
 Артефакты — `output/baseline.*`, `output/baseline-decomposed.*` и
 `output/baseline-comparison.json`; HTML содержит диаграммы обоих результатов.
+На push и pull request GitHub Actions запускает оба baseline на приложенном
+`test/data/filling_only_20_product_assignment_input.json` и сохраняет весь `output/`
+в артефакт **scheduler-output**: JSON-расписания, HTML Ганты, metrics и сравнение.
+Скачать его можно в **Actions → Scheduler checks → нужный запуск → Artifacts**.
+Логи и покрытие доступны отдельно в **scheduler-diagnostics**.
 Контрольный запуск 06.09.2026 с двумя целями и эвристикой: монолитный режим — 4,8 с,
 декомпозиция — 29,3 с; оба доказали 210 минут переналадок и ноль дополнительных
 назначений. Makespan после сдвига — 2272 и 2256 минут соответственно, без доказательства

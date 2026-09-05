@@ -26,6 +26,13 @@ jobs:
         run: ./scripts/run_tests.sh -m baseline --no-cov
       - name: Verify Docker lifecycle and offline execution
         run: ./scripts/run_tests.sh --smoke
+      - name: Upload schedules generated from the supplied 20-product input
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scheduler-output
+          path: output/
+          if-no-files-found: error
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -35,4 +42,3 @@ jobs:
           path: |
             .logs/
             .cache/coverage.xml
-            output/
