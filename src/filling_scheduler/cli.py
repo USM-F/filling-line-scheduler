@@ -14,7 +14,7 @@ from filling_scheduler.errors import ApplicationError
 from filling_scheduler.input import load_input
 from filling_scheduler.report import encode_report, write_report
 from filling_scheduler.logging_config import close_logging, configure_logging
-from filling_scheduler.pipeline import inspect_input
+from filling_scheduler.pipeline import inspect_input, paths_alias, solve_command, validate_command, render_command
 from filling_scheduler.stage_timing import timed_stage
 
 
@@ -60,7 +60,7 @@ def common_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def build_parser() -> ArgumentParser:
-    parser = ArgumentParser(description="Filling-line scheduler MVP skeleton", allow_abbrev=False)
+    parser = ArgumentParser(description="Filling-line scheduler", allow_abbrev=False)
     parser.add_argument("--version", action="version", version=__version__)
     common_arguments(parser)
     commands = parser.add_subparsers(dest="command", required=True, parser_class=ArgumentParser)
@@ -68,7 +68,7 @@ def build_parser() -> ArgumentParser:
     inspect.add_argument("--input", required=True, type=Path)
     inspect.add_argument("--report", type=Path)
     inspect.add_argument("--force", action="store_true")
-    solve = commands.add_parser("solve", help="Schedule production (not implemented)", allow_abbrev=False)
+    solve = commands.add_parser("solve", help="Schedule production using MILP", allow_abbrev=False)
     solve.add_argument("--input", required=True, type=Path)
     solve.add_argument("--output", required=True, type=Path)
     solve.add_argument("--decomposition", action="store_true")
@@ -81,12 +81,13 @@ def build_parser() -> ArgumentParser:
     solve.add_argument("--work-dir", type=Path)
     solve.add_argument("--keep-work-dir", action="store_true")
     solve.add_argument("--force", action="store_true")
-    validate = commands.add_parser("validate", help="Validate a schedule (not implemented)", allow_abbrev=False)
+    validate = commands.add_parser("validate", help="Independently validate a schedule", allow_abbrev=False)
     validate.add_argument("--input", required=True, type=Path)
     validate.add_argument("--schedule", required=True, type=Path)
-    render = commands.add_parser("render", help="Render a schedule (not implemented)", allow_abbrev=False)
+    render = commands.add_parser("render", help="Render an offline HTML Gantt", allow_abbrev=False)
     render.add_argument("--schedule", required=True, type=Path)
     render.add_argument("--html-output", required=True, type=Path)
+    render.add_argument("--force", action="store_true")
     for command in (inspect, solve, validate, render):
         common_arguments(command)
     return parser
@@ -101,15 +102,6 @@ def raw_option(argv: list[str], option: str) -> str | None:
         elif value == option and index + 1 < len(argv) and not argv[index + 1].startswith("--"):
             found = argv[index + 1]
     return found
-
-
-def paths_alias(first: Path, second: Path) -> bool:
-    if first.resolve() == second.resolve():
-        return True
-    try:
-        return first.samefile(second)
-    except OSError:
-        return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
             failure = ApplicationError(ErrorCode.CLI_ERROR, "Log file must be separate from data files")
             log_file = Path(f".logs/{run_id}.jsonl")
             break
+    output = raw_option(argv, "--output")
+    if output and any(paths_alias(log_file, Path(output).with_suffix(suffix)) for suffix in (".html", ".metrics.json")):
+        failure = ApplicationError(ErrorCode.CLI_ERROR, "Log file must be separate from generated artifacts")
+        log_file = Path(f".logs/{run_id}.jsonl")
     logger = logging.getLogger("filling_scheduler")
     try:
         try:
@@ -157,9 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise failure
             if parser_status is not None:
                 exit_code = ExitCode(parser_status)
-            elif args is not None:
-                if args.command != "inspect":
-                    raise ApplicationError(ErrorCode.NOT_IMPLEMENTED, f"{args.command} is not implemented yet", ExitCode.NOT_IMPLEMENTED)
+            elif args is not None and args.command == "inspect":
                 if args.report and paths_alias(args.input, args.report):
                     raise ApplicationError(ErrorCode.CLI_ERROR, "Report must be separate from input")
                 with timed_stage(StageName.LOAD_INPUT):
@@ -173,9 +167,20 @@ def main(argv: list[str] | None = None) -> int:
                         logger.info(EventName.REPORT_WRITTEN)
                 logger.info(EventName.INSPECTION_COMPLETED, extra={"fields": {"summary": report}})
                 sys.stdout.write(contents)
+            elif args is not None:
+                if args.command == "solve":
+                    report = solve_command(args, run_id, log_file)
+                elif args.command == "validate":
+                    report = validate_command(args)
+                else:
+                    report = render_command(args, log_file)
+                sys.stdout.write(encode_report(report))
+                if args.command == "validate" and not report["valid"]:
+                    raise ApplicationError(ErrorCode.SCHEDULE_INVALID, "Schedule failed validation", ExitCode.SCHEDULE_INVALID,
+                                           details=report["errors"])
         except ApplicationError as exc:
             exit_code, error_code = exc.exit_code, exc.code
-            logger.error(EventName.COMMAND_FAILED, extra={"fields": {
+            logger.error(EventName.COMMAND_FAILED, exc_info=exc.code == ErrorCode.RENDER_ERROR, extra={"fields": {
                 "error_code": exc.code, "exit_code": exc.exit_code,
                 "message": str(exc), "details": exc.details,
             }})

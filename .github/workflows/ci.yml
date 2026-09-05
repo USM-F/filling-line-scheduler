@@ -1,4 +1,4 @@
-name: Skeleton checks
+name: Scheduler checks
 
 on:
   push:
@@ -22,13 +22,15 @@ jobs:
           ./scripts/run.sh inspect
           --input test/data/filling_only_20_product_assignment_input.json
           --report output/inspection.json --debug
+      - name: Solve and validate the 20-product baseline
+        run: ./scripts/run_tests.sh -m baseline --no-cov
       - name: Verify Docker lifecycle and offline execution
         run: ./scripts/run_tests.sh --smoke
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: skeleton-diagnostics
+          name: scheduler-diagnostics
           include-hidden-files: true
           path: |
             .logs/

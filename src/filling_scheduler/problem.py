@@ -20,12 +20,11 @@ def unique(values: list[str], path: str) -> None:
 
 def local_time(day: date, clock: str, zone: ZoneInfo) -> datetime:
     naive = datetime.combine(day, time.fromisoformat(clock))
-    candidates = {
-        aware.astimezone(timezone.utc)
-        for fold in (0, 1)
-        if (aware := naive.replace(tzinfo=zone, fold=fold))
-        .astimezone(timezone.utc).astimezone(zone).replace(tzinfo=None) == naive
-    }
+    candidates = set()
+    for fold in (0, 1):
+        utc = naive.replace(tzinfo=zone, fold=fold).astimezone(timezone.utc)
+        if utc.astimezone(zone).replace(tzinfo=None) == naive:
+            candidates.add(utc)
     if len(candidates) != 1:
         invalid("Ambiguous or nonexistent local calendar boundary", "calendar")
     return candidates.pop()
@@ -97,7 +96,8 @@ def prepare_problem(source: SchedulingInput) -> Problem:
                 invalid("Eligibility references an unknown product", f"lines.{line.line_id}")
             units = product.capacity_units_per_hour * horizon.precision_minutes / 60
             if units != units.to_integral_value() or units < 1:
-                raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Capacity must give integer units per planning tick")
+                raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Capacity must give integer units per planning tick",
+                                       details=[{"path": f"lines.{line.line_id}.{product.sku_id}.capacityUnitsPerHour"}])
             if product.sku_id in demand:
                 rates[product.sku_id, line.line_id] = int(units)
     for sku in demand:
@@ -110,7 +110,8 @@ def prepare_problem(source: SchedulingInput) -> Problem:
         if row[sku] != 0:
             invalid("Diagonal changeover must be zero", "changeoverMatrixMinutes")
         if any(value % horizon.precision_minutes for value in row.values()):
-            raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Changeovers must align to planning ticks")
+            raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Changeovers must align to planning ticks",
+                                   details=[{"path": f"changeoverMatrixMinutes.{sku}"}])
 
     intervals = []
     shifts = []
@@ -168,7 +169,8 @@ def prepare_problem(source: SchedulingInput) -> Problem:
             continue
         offsets = [(value - start).total_seconds() for value in (a, b)]
         if any(value % step for value in offsets):
-            raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Calendar boundaries must align to planning ticks")
+            raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Calendar boundaries must align to planning ticks",
+                                   details=[{"path": "calendar"}])
         left, right = (int(value / step) for value in offsets)
         # Adjacent windows have no actual pause and should become one physical slot.
         if windows and windows[-1].end == left:

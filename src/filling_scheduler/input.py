@@ -36,7 +36,7 @@ def reject_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON constant: {value}")
 
 
-def load_input(path: Path) -> SchedulingInput:
+def load_document(path: Path, model):
     try:
         contents = path.read_bytes()
     except OSError as exc:
@@ -54,10 +54,14 @@ def load_input(path: Path) -> SchedulingInput:
             details[0].update(line=exc.lineno, column=exc.colno)
         raise ApplicationError(ErrorCode.INVALID_JSON, "Invalid UTF-8 JSON", details=details) from exc
     try:
-        return SchedulingInput.model_validate(raw)
+        return model.model_validate(raw)
     except ValidationError as exc:
         details = [
             {"path": list(error["loc"]), "type": error["type"], "message": error["msg"]}
             for error in exc.errors(include_url=False, include_input=False, include_context=False)
         ]
         raise ApplicationError(ErrorCode.SCHEMA_ERROR, "Input does not match schema", details=details) from exc
+
+
+def load_input(path: Path) -> SchedulingInput:
+    return load_document(path, SchedulingInput)

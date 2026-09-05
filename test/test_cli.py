@@ -62,14 +62,14 @@ def test_argument_errors_logged(args, tmp_path, capsys):
     ("validate", ["--input", "input.json", "--schedule", "schedule.json"]),
     ("render", ["--schedule", "schedule.json", "--html-output", "schedule.html"]),
 ])
-def test_stubs(command, args, tmp_path, monkeypatch, capsys):
+def test_missing_command_inputs(command, args, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    assert main([command, *args]) == ExitCode.NOT_IMPLEMENTED
+    assert main([command, *args]) == ExitCode.INPUT_ERROR
     assert not capsys.readouterr().out
     assert not (tmp_path / "schedule.json").exists()
     assert not (tmp_path / "schedule.html").exists()
     records = events(next((tmp_path / ".logs").iterdir()))
-    assert records[-1]["error_code"] == "NOT_IMPLEMENTED"
+    assert records[-1]["error_code"] == "INPUT_READ_ERROR"
     assert any(record["level"] == "ERROR" for record in records)
 
 

@@ -167,6 +167,8 @@ class SchedulingMilp:
                  "work_windows": len(self.problem.windows)}
         if not self.problem.demand:
             return SolveResult([], SolverStatus.OPTIMAL, {key: 0 for key in ObjectiveName}, [], model, 0)
+        # HiGHS keeps a process-global thread pool. Sequential CLI calls may request a different size.
+        highspy.Highs.resetGlobalScheduler(True)
         h = highspy.Highs()
         def checked(status) -> None:
             if status == highspy.HighsStatus.kError:
@@ -175,7 +177,11 @@ class SchedulingMilp:
                            "mip_abs_gap": 0.0, "log_to_console": False, "output_flag": log_path is not None}.items():
             checked(h.setOptionValue(key, value))
         if log_path is not None:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                log_path.touch(exist_ok=True)
+            except OSError as exc:
+                raise ApplicationError(ErrorCode.LOG_WRITE_ERROR, "Cannot open HiGHS log", ExitCode.ARTIFACT_ERROR) from exc
             checked(h.setOptionValue("log_file", str(log_path)))
         n = len(self.names)
         indices = np.arange(n, dtype=np.int32)
@@ -207,6 +213,11 @@ class SchedulingMilp:
             pass_started = perf_counter()
             checked(h.run())
             status, info, solution = h.getModelStatus(), h.getInfo(), h.getSolution()
+            if status in {highspy.HighsModelStatus.kLoadError, highspy.HighsModelStatus.kModelError,
+                          highspy.HighsModelStatus.kPresolveError, highspy.HighsModelStatus.kSolveError,
+                          highspy.HighsModelStatus.kPostsolveError, highspy.HighsModelStatus.kUnbounded,
+                          highspy.HighsModelStatus.kUnboundedOrInfeasible, highspy.HighsModelStatus.kUnknown}:
+                raise ApplicationError(ErrorCode.SOLVER_ERROR, f"Unexpected HiGHS status: {status.name}", ExitCode.INTERNAL_ERROR)
             feasible = info.primal_solution_status == highspy.SolutionStatus.kSolutionStatusFeasible and solution.value_valid
             if feasible:
                 best = solution

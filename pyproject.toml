@@ -18,7 +18,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
-addopts = "-ra"
+addopts = "-ra -m 'not baseline'"
+markers = ["baseline: supplied 20-product problem with a 300-second solver budget"]
 
 [tool.coverage.run]
 branch = true
