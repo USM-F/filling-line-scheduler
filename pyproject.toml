@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools==80.9.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "filling-line-scheduler"
+version = "0.1.0"
+description = "CLI for filling-line scheduling"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pydantic==2.11.7", "highspy==1.11.0"]
+
+[project.scripts]
+filling-scheduler = "filling_scheduler.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+addopts = "-ra"
+
+[tool.coverage.run]
+branch = true
+source = ["filling_scheduler"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
