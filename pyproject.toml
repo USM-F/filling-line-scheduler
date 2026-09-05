@@ -19,7 +19,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["test"]
 addopts = "-ra"
-markers = ["docker: requires a host Docker daemon (run via test/docker_smoke.sh)"]
 
 [tool.coverage.run]
 branch = true

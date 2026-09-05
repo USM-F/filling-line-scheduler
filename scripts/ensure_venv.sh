@@ -1,70 +1,105 @@
 #!/usr/bin/env bash
-set -euo pipefail
-exec 1>&2
-source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 
-profile=runtime
-force=false
-while (($#)); do
-    case "$1" in
-        --force) force=true; shift ;;
-        --profile) [[ $# -ge 2 ]] || die '--profile needs runtime or dev'; profile="$2"; shift 2 ;;
-        *) die "Unknown argument: $1" ;;
+set -euo pipefail
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+. "${script_dir}/utils.sh"
+exec 1>&2
+
+profile='runtime'
+force='false'
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --force)
+            force='true'
+            shift
+            ;;
+        --profile)
+            if [[ $# -lt 2 ]]; then
+                fail '--profile needs runtime or dev'
+            fi
+            profile=$2
+            shift 2
+            ;;
+        *)
+            fail "Usage: $(basename "$0") [--force] [--profile runtime|dev]"
+            ;;
     esac
 done
-[[ "${profile}" == runtime || "${profile}" == dev ]] || die 'Profile must be runtime or dev'
+
+if [[ "${profile}" != 'runtime' && "${profile}" != 'dev' ]]; then
+    fail 'Profile must be runtime or dev'
+fi
+
 validate_venv_path
 mkdir -p -- "$(dirname -- "${VENV_DIR}")"
-[[ ! -L "${VENV_DIR}.lock" ]] || die 'Venv lock must not be a symlink'
+if [[ -L "${VENV_DIR}.lock" ]]; then
+    fail 'Venv lock must not be a symlink'
+fi
 exec 9>"${VENV_DIR}.lock"
 flock 9
 validate_venv_path
-"${FLS_SCRIPT_DIR}/ensure_builder_image.sh"
-image_id="$(docker image inspect "${FLS_IMAGE_REF}" --format '{{.Id}}')"
-abi="$(docker run --rm --network none "${FLS_IMAGE_REF}" python -c 'import platform, sysconfig; print(sysconfig.get_config_var("SOABI"), platform.machine())')"
 
-# A current dev environment is also sufficient for runtime; do not downgrade it.
-if [[ "${profile}" == runtime && -f "${VENV_DIR}/.fls-stamp" ]] && [[ "$(head -n 1 "${VENV_DIR}/.fls-stamp")" == dev ]]; then
-    profile=dev
+"${script_dir}/ensure_builder_image.sh"
+
+# The image ID fixes the Python ABI and architecture. A dev venv also serves runtime.
+image_id=$(docker image inspect "${FLS_IMAGE_REF}" --format '{{.Id}}')
+stamp_file="${VENV_DIR}/.fls-stamp"
+if [[ -f "${stamp_file}" && "$(head -n 1 "${stamp_file}")" == 'dev' ]]; then
+    profile='dev'
 fi
-fingerprint="$( {
-    printf '%s\n' "${image_id}" "${abi}" "${profile}"
-    cat "${FLS_PROJECT_ROOT}/requirements.txt" "${FLS_PROJECT_ROOT}/pyproject.toml"
-    cat "${FLS_SCRIPT_DIR}/ensure_venv.sh"
-    if [[ "${profile}" == dev ]]; then cat "${FLS_PROJECT_ROOT}/requirements-dev.txt"; fi
-} | sha256sum | cut -d ' ' -f1)"
-expected_stamp="$(printf '%s\n%s' "${profile}" "${fingerprint}")"
-if [[ "${force}" == false && -f "${VENV_DIR}/pyvenv.cfg" && -f "${VENV_DIR}/.fls-stamp" ]] && [[ "$(cat "${VENV_DIR}/.fls-stamp")" == "${expected_stamp}" ]]; then
-    # Venv interpreter symlinks point inside the image, not into the host OS.
-    if docker run --rm --network none --user "$(id -u):$(id -g)" \
-        -v "${VENV_DIR}:/opt/venv:ro" "${FLS_IMAGE_REF}" \
-        /opt/venv/bin/python -m pip check >/dev/null 2>&1; then
-        log INFO "Reusing '${VENV_DIR}' (${profile})"
+
+requirements='requirements.txt'
+if [[ "${profile}" == 'dev' ]]; then
+    requirements='requirements-dev.txt'
+fi
+fingerprint=$(
+    {
+        printf '%s\n' "${image_id}" "${profile}"
+        cat "${FLS_PROJECT_ROOT}/requirements.txt" "${FLS_PROJECT_ROOT}/${requirements}"
+        cat "${FLS_PROJECT_ROOT}/pyproject.toml" "${script_dir}/ensure_venv.sh"
+    } | sha256sum | cut -d ' ' -f 1
+)
+stamp=$(printf '%s\n%s' "${profile}" "${fingerprint}")
+
+if [[ "${force}" == 'false' && -f "${stamp_file}" && "$(cat "${stamp_file}")" == "${stamp}" ]]; then
+    # The venv interpreter exists inside the image; do not test its host symlink.
+    if docker container run --rm --network none \
+        --user "$(id -u):$(id -g)" \
+        -v "${VENV_DIR}:/opt/venv:ro" \
+        "${FLS_IMAGE_REF}" /opt/venv/bin/python -m pip check &>/dev/null; then
+        log INFO "Venv '${VENV_DIR}' (${profile}) found -> skipping installation"
         exit 0
     fi
 fi
+
 if [[ -d "${VENV_DIR}" ]]; then
     validate_venv_path
-    log INFO "Recreating guarded venv '${VENV_DIR}'"
+    log INFO "Recreating venv '${VENV_DIR}'"
     rm -rf -- "${VENV_DIR}"
 fi
 mkdir -p -- "${VENV_DIR}"
 printf '%s\n' "${FLS_PROJECT_ROOT}" >"${VENV_DIR}/.fls-owner"
-requirements=requirements.txt
-if [[ "${profile}" == dev ]]; then requirements=requirements-dev.txt; fi
-log INFO "Installing '${requirements}' into container-built venv"
-docker run --rm --user "$(id -u):$(id -g)" \
-    -e PYTHONDONTWRITEBYTECODE=1 -e PIP_DISABLE_PIP_VERSION_CHECK=1 -e PIP_NO_CACHE_DIR=1 \
-    -v "${FLS_PROJECT_ROOT}:/workspace:ro" -v "${VENV_DIR}:/opt/venv" \
-    "${FLS_IMAGE_REF}" sh -eu -c '
-        python -m venv /opt/venv
-        /opt/venv/bin/python -m pip install --no-cache-dir -r "/workspace/$1"
-        mkdir /tmp/package
-        cp /workspace/pyproject.toml /workspace/README.md /tmp/package/
-        cp -R /workspace/src /tmp/package/src
-        /opt/venv/bin/python -m pip install --no-deps --no-build-isolation /tmp/package
-        /opt/venv/bin/python -m pip check
-    ' sh "${requirements}"
-printf '%s\n' "${expected_stamp}" >"${VENV_DIR}/.fls-stamp.tmp"
-mv -- "${VENV_DIR}/.fls-stamp.tmp" "${VENV_DIR}/.fls-stamp"
-log INFO "Venv ready (${profile})"
+
+log INFO "Installing '${requirements}' into '${VENV_DIR}'"
+
+docker container run --rm -i \
+    --user "$(id -u):$(id -g)" \
+    -v "${FLS_PROJECT_ROOT}:/workspace:ro" \
+    -v "${VENV_DIR}:/opt/venv" \
+    -e PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    -e PIP_NO_CACHE_DIR=1 \
+    "${FLS_IMAGE_REF}" bash -se -- "${requirements}" <<'EOF'
+python -m venv /opt/venv
+/opt/venv/bin/python -m pip install -r "/workspace/$1"
+
+# Build package metadata in /tmp, keeping the source checkout untouched.
+mkdir /tmp/package
+cp /workspace/pyproject.toml /workspace/README.md /tmp/package/
+cp -R /workspace/src /tmp/package/src
+/opt/venv/bin/python -m pip install --no-deps --no-build-isolation /tmp/package
+/opt/venv/bin/python -m pip check
+EOF
+
+printf '%s\n' "${stamp}" >"${stamp_file}.tmp"
+mv -- "${stamp_file}.tmp" "${stamp_file}"
+log INFO "Venv '${VENV_DIR}' is ready (${profile})"

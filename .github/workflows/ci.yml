@@ -23,7 +23,7 @@ jobs:
           --input test/data/filling_only_20_product_assignment_input.json
           --report output/inspection.json --debug
       - name: Verify Docker lifecycle and offline execution
-        run: ./test/docker_smoke.sh
+        run: ./scripts/run_tests.sh --smoke
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4

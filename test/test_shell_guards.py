@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-PROJECT = Path(__file__).parents[2]
+PROJECT = Path(__file__).parents[1]
 
 
 def run_guard(path):
