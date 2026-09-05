@@ -4,10 +4,10 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from filling_scheduler.domain.enums import ErrorCode
-from filling_scheduler.domain.input import SchedulingInput
+from filling_scheduler.enums import ErrorCode
+from filling_scheduler.models import SchedulingInput
 from filling_scheduler.errors import ApplicationError
-from filling_scheduler.io.input import load_input
+from filling_scheduler.input import load_input
 from filling_scheduler.pipeline import inspect_input
 
 

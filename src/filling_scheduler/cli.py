@@ -9,10 +9,10 @@ from time import perf_counter_ns
 from uuid import uuid4
 
 from filling_scheduler import __version__, config
-from filling_scheduler.domain.enums import ErrorCode, EventName, ExitCode, StageName
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName
 from filling_scheduler.errors import ApplicationError
-from filling_scheduler.io.input import load_input
-from filling_scheduler.io.report import encode_report, write_report
+from filling_scheduler.input import load_input
+from filling_scheduler.report import encode_report, write_report
 from filling_scheduler.logging_config import close_logging, configure_logging
 from filling_scheduler.pipeline import inspect_input
 from filling_scheduler.stage_timing import timed_stage

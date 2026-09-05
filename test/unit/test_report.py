@@ -1,8 +1,8 @@
 import pytest
 
-from filling_scheduler.domain.enums import ErrorCode, ExitCode
+from filling_scheduler.enums import ErrorCode, ExitCode
 from filling_scheduler.errors import ApplicationError
-from filling_scheduler.io.report import write_report
+from filling_scheduler.report import write_report
 
 
 def test_publish_no_overwrite_and_force(tmp_path):

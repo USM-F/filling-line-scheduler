@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from time import perf_counter_ns
 from typing import Iterator
 
-from filling_scheduler.domain.enums import EventName, StageName
+from filling_scheduler.enums import EventName, StageName
 
 logger = logging.getLogger(__name__)
 

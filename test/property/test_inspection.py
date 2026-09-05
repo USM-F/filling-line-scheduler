@@ -1,6 +1,6 @@
 from hypothesis import given, strategies as st
 
-from filling_scheduler.domain.input import SchedulingInput
+from filling_scheduler.models import SchedulingInput
 from filling_scheduler.pipeline import inspect_input
 
 

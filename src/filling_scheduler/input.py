@@ -5,8 +5,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from filling_scheduler.domain.enums import ErrorCode
-from filling_scheduler.domain.input import SchedulingInput
+from filling_scheduler.enums import ErrorCode
+from filling_scheduler.models import SchedulingInput
 from filling_scheduler.errors import ApplicationError
 
 

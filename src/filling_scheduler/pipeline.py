@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from filling_scheduler.domain.input import SchedulingInput
+from filling_scheduler.models import SchedulingInput
 
 
 def inspect_input(problem: SchedulingInput) -> dict[str, Any]:

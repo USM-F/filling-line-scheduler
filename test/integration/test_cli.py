@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from filling_scheduler.cli import build_parser, main
-from filling_scheduler.domain.enums import ExitCode
+from filling_scheduler.enums import ExitCode
 
 
 def events(path):

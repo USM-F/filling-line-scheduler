@@ -1,6 +1,6 @@
 from typing import Any
 
-from filling_scheduler.domain.enums import ErrorCode, ExitCode
+from filling_scheduler.enums import ErrorCode, ExitCode
 
 
 class ApplicationError(Exception):
