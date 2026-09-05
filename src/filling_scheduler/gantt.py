@@ -59,13 +59,17 @@ def render_html(schedule: Schedule) -> str:
                 duration = (slot.end.timestamp()-slot.start.timestamp()) / 60
                 if slot.type == "production":
                     label = slot.sku_id
-                    detail = f"{label} · {slot.quantity:,} ед."
+                    detail = f"Продукт: {label}\nКоличество: {slot.quantity:,} ед."
                     fill = sku_color(label)
                 else:
                     label = f"{slot.from_sku} → {slot.to_sku}"
-                    detail = "Переналадка " + label
+                    detail = "Переналадка: " + label
                     fill = "url(#setup)"
-                tooltip = f"{line.line_id} · {detail}\n{slot.start.astimezone(zone).isoformat()} → {slot.end.astimezone(zone).isoformat()}\n{duration:g} мин"
+                start, finish = slot.start.astimezone(zone), slot.end.astimezone(zone)
+                tooltip = (f"Линия: {line.line_id}\n{detail}\n"
+                           f"Дата начала: {start:%d.%m.%Y}\nВремя начала: {start:%H:%M:%S}\n"
+                           f"Дата окончания: {finish:%d.%m.%Y}\nВремя окончания: {finish:%H:%M:%S}\n"
+                           f"Длительность: {duration:g} мин\nЧасовой пояс: {schedule.time_zone}")
                 svg.append(f'<g class="slot {slot.type}" data-line="{e(line.line_id)}" data-label="{e(label)}">'
                            f'<title>{e(tooltip)}</title><rect x="{x:.4f}" y="{y}" width="{bar_width:.6f}" height="34" rx="3" fill="{fill}"/>')
                 if bar_width > 25 + len(label)*7:

@@ -30,6 +30,10 @@ def test_gantt_slots_lines_and_offline_resources():
     assert all("src" not in a and "href" not in a for _, a in elements)
     assert "<script" not in html
     assert "01:40" in html
+    assert "Дата начала: 17.08.2026\nВремя начала: 08:00:00" in html
+    assert "Дата окончания: 18.08.2026\nВремя окончания: 01:40:00" in html
+    assert "Количество:" in html
+    assert "Длительность:" in html
 
 
 def test_stable_sku_colors_and_escaping():
