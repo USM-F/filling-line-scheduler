@@ -30,7 +30,7 @@ if [[ "${smoke}" == 'true' ]]; then
 fi
 
 "${script_dir}/ensure_venv.sh" --profile dev "${force_args[@]}"
-mkdir -p "${FLS_PROJECT_ROOT}/.cache" "${FLS_PROJECT_ROOT}/.logs"
+mkdir -p "${FLS_PROJECT_ROOT}/.cache" "${FLS_PROJECT_ROOT}/.logs" "${FLS_PROJECT_ROOT}/output"
 
 log INFO 'Running Filling-Line Scheduler tests'
 
@@ -40,6 +40,7 @@ docker container run --rm --network none \
     -v "${VENV_DIR}:/opt/venv:ro" \
     -v "${FLS_PROJECT_ROOT}/.cache:/workspace/.cache" \
     -v "${FLS_PROJECT_ROOT}/.logs:/workspace/.logs" \
+    -v "${FLS_PROJECT_ROOT}/output:/workspace/output" \
     -w /workspace \
     -e PYTHONPATH=/workspace/src \
     -e COVERAGE_FILE=/workspace/.cache/.coverage \

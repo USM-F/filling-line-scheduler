@@ -28,6 +28,9 @@ def test_inspect_and_debug(input_path, tmp_path, capsys):
     assert records[-1]["exit_code"] == 0
     assert {record["stage"] for record in records if "stage" in record} == {"load_input", "inspect_input", "json_dump"}
     assert "INFO inspection_completed" in captured.err
+    bound = next(record for record in records if record["event"] == "changeover_lower_bound")
+    assert bound["lower_bound_minutes"] == 210
+    assert bound["level"] == "INFO"
 
 
 def test_info_omits_debug(input_path, tmp_path, capsys):
@@ -62,14 +65,14 @@ def test_argument_errors_logged(args, tmp_path, capsys):
     ("validate", ["--input", "input.json", "--schedule", "schedule.json"]),
     ("render", ["--schedule", "schedule.json", "--html-output", "schedule.html"]),
 ])
-def test_stubs(command, args, tmp_path, monkeypatch, capsys):
+def test_missing_command_inputs(command, args, tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    assert main([command, *args]) == ExitCode.NOT_IMPLEMENTED
+    assert main([command, *args]) == ExitCode.INPUT_ERROR
     assert not capsys.readouterr().out
     assert not (tmp_path / "schedule.json").exists()
     assert not (tmp_path / "schedule.html").exists()
     records = events(next((tmp_path / ".logs").iterdir()))
-    assert records[-1]["error_code"] == "NOT_IMPLEMENTED"
+    assert records[-1]["error_code"] == "INPUT_READ_ERROR"
     assert any(record["level"] == "ERROR" for record in records)
 
 

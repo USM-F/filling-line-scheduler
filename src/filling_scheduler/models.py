@@ -1,4 +1,4 @@
-"""Strict input boundary. Cross-field scheduling semantics are a later stage."""
+"""Strict input schema; cross-field scheduling semantics live in problem.py."""
 
 from datetime import datetime
 from decimal import Decimal
