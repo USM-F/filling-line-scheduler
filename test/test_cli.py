@@ -28,6 +28,9 @@ def test_inspect_and_debug(input_path, tmp_path, capsys):
     assert records[-1]["exit_code"] == 0
     assert {record["stage"] for record in records if "stage" in record} == {"load_input", "inspect_input", "json_dump"}
     assert "INFO inspection_completed" in captured.err
+    bound = next(record for record in records if record["event"] == "changeover_lower_bound")
+    assert bound["lower_bound_minutes"] == 210
+    assert bound["level"] == "INFO"
 
 
 def test_info_omits_debug(input_path, tmp_path, capsys):

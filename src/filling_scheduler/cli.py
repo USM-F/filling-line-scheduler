@@ -81,6 +81,8 @@ def build_parser() -> ArgumentParser:
                        help="Objective policy (default: lexicographic)")
     solve.add_argument("--objective-weights", nargs=4, type=finite_float, metavar=("F1", "F2", "F3", "F4"),
                        help="Required in weighted mode: changeover ticks, extra assignments, makespan ticks, start sum ticks")
+    solve.add_argument("--working-changeover-weight", type=finite_float, default=0.0,
+                       help="Optional weighted-mode penalty per working tick occupied by changeovers (default: 0)")
     solve.add_argument("--html-output", type=Path)
     solve.add_argument("--work-dir", type=Path)
     solve.add_argument("--keep-work-dir", action="store_true")

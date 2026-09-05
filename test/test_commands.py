@@ -142,6 +142,10 @@ def test_weighted_cli_and_metrics(command_case, capsys):
     assert len(metrics["passes"]) == 1
     assert Path(response["html"]).exists()
     assert main(["validate", "--input", command_case[2], "--schedule", response["output"]]) == 0
+    records = [json.loads(line) for p in Path(".logs").glob("*.jsonl") for line in p.read_text().splitlines()]
+    analysis = next(r for r in records if r["event"] == "changeover_analysis")
+    assert analysis["minimum_proven"]
+    assert analysis["excess_changeover_minutes"] == 0
 
 
 @pytest.mark.parametrize("extra", [
@@ -158,6 +162,23 @@ def test_invalid_objective_options(command_case, extra, capsys):
     assert not Path("output").exists()
     records = [json.loads(line) for path in Path(".logs").glob("*.jsonl") for line in path.read_text().splitlines()]
     assert records[-1]["error_code"] == "CLI_ERROR"
+
+
+@pytest.mark.parametrize("extra", [["--working-changeover-weight", "1"],
+    ["--working-changeover-weight", "-1"], ["--working-changeover-weight", "nan"]])
+def test_invalid_working_changeover_options(command_case, extra):
+    assert main([*command_case, *extra]) == 2
+    assert not Path("output").exists()
+
+
+def test_working_changeover_cli(command_case, capsys):
+    assert main([*command_case, "--objective-mode", "weighted", "--objective-weights", "1", "30", "0.1", "0.01",
+                 "--working-changeover-weight", "2"]) == 0
+    response = json.loads(capsys.readouterr().out)
+    metrics = json.loads(Path(response["metrics"]).read_text())
+    assert metrics["settings"]["working_changeover_weight"] == 2
+    assert metrics["objectives"]["working_changeover_ticks"] == 0
+    assert metrics["changeover_analysis"]["working_changeover_minutes"] == 0
 
 
 def test_fractional_weighted_gap_is_not_integer_proof(command_case, monkeypatch, capsys):

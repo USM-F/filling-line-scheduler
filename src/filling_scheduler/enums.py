@@ -37,6 +37,8 @@ class ErrorCode(StrEnum):
 
 
 class EventName(StrEnum):
+    CHANGEOVER_LOWER_BOUND = "changeover_lower_bound"
+    CHANGEOVER_ANALYSIS = "changeover_analysis"
     SOLVE_PASS_COMPLETED = "solve_pass_completed"
     SCHEDULE_VALIDATED = "schedule_validated"
     COMMAND_STARTED = "command_started"
@@ -76,3 +78,7 @@ class ObjectiveName(StrEnum):
     SPLIT = "split_excess"
     MAKESPAN = "makespan_ticks"
     STARTS = "start_sum_ticks"
+
+
+class AdditionalObjectiveName(StrEnum):
+    WORKING_CHANGEOVER = "working_changeover_ticks"

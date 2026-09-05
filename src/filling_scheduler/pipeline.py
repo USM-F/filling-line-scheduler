@@ -7,21 +7,22 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveName
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveName, AdditionalObjectiveName
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.gantt import render_html
 from filling_scheduler.input import load_document, load_input
 from filling_scheduler.models import SchedulingInput
-from filling_scheduler.problem import prepare_problem
+from filling_scheduler.problem import prepare_problem, changeover_lower_bound
 from filling_scheduler.report import encode_report, publish_artifacts
 from filling_scheduler.schedule import Schedule, materialize_schedule
 from filling_scheduler.stage_timing import timed_stage
-from filling_scheduler.validation import validate_schedule
+from filling_scheduler.validation import validate_schedule, changeover_calendar_usage
 
 logger = logging.getLogger(__name__)
 
 
 def inspect_input(problem: SchedulingInput) -> dict[str, Any]:
+    log_changeover_bound(problem)
     return {
         "id": problem.id,
         "planningHorizon": problem.planning_horizon.model_dump(mode="json", by_alias=True),
@@ -31,6 +32,12 @@ def inspect_input(problem: SchedulingInput) -> dict[str, Any]:
         "eligiblePairCount": sum(len(line.eligible_products) for line in problem.lines),
         "totalDemandUnits": sum(item.demand_units for item in problem.demand),
     }
+
+
+def log_changeover_bound(source: SchedulingInput) -> dict:
+    bound = changeover_lower_bound(source)
+    logger.info(EventName.CHANGEOVER_LOWER_BOUND, extra={"fields": bound})
+    return bound
 
 
 def paths_alias(first: Path, second: Path) -> bool:
@@ -76,7 +83,7 @@ def check_schedule(problem, schedule):
 
 def solve_command(args, run_id: str, log_file: Path) -> dict:
     from filling_scheduler.milp import SchedulingMilp, validate_objective_options
-    mode, weights = validate_objective_options(args.objective_mode, args.objective_weights)
+    mode, weights = validate_objective_options(args.objective_mode, args.objective_weights, args.working_changeover_weight)
     weight_summary = dict(zip(ObjectiveName, weights)) if weights is not None else None
     if args.decomposition or args.workers != 1 or args.work_dir is not None or args.keep_work_dir:
         raise ApplicationError(ErrorCode.CLI_ERROR, "Decomposition and workers are not supported by the monolithic model")
@@ -89,7 +96,7 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     started = perf_counter()
     problem = prepare_input(args.input)
     with timed_stage(StageName.MILP_BUILD):
-        model = SchedulingMilp(problem)
+        model = SchedulingMilp(problem, working_changeover_weight=args.working_changeover_weight)
     with timed_stage(StageName.MILP_SOLVE):
         result = model.solve(time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
                              seed=args.seed, threads=args.threads_per_worker, log_path=native_log,
@@ -100,6 +107,9 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     if not report["valid"]:
         raise ApplicationError(ErrorCode.SCHEDULE_INVALID, "Generated schedule failed independent validation",
                                ExitCode.SCHEDULE_INVALID, details=report["errors"])
+    changeovers = changeover_calendar_usage(problem, schedule)
+    if args.working_changeover_weight and changeovers["working_changeover_minutes"] != result.objectives[AdditionalObjectiveName.WORKING_CHANGEOVER] * problem.precision:
+        raise ApplicationError(ErrorCode.SOLVER_ERROR, "Working changeover objective disagrees with physical slots", ExitCode.INTERNAL_ERROR)
     html = checked_html(schedule)
     metrics = {"scheduleId": schedule.schedule_id, "status": result.status, "independently_validated": True,
                "objectives": result.objectives, "passes": result.passes, "model": result.model,
@@ -107,14 +117,17 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
                "solver_elapsed_ms": result.elapsed_ms, "pipeline_elapsed_ms": (perf_counter()-started)*1000,
                "settings": {"time_limit_seconds": args.time_limit_seconds, "mip_gap": args.mip_gap,
                             "threads": args.threads_per_worker, "seed": args.seed,
-                            "objective_mode": mode, "objective_weights": weight_summary},
+                            "objective_mode": mode, "objective_weights": weight_summary,
+                            "working_changeover_weight": args.working_changeover_weight},
                "environment": {"python": platform.python_version(), "highspy": version("highspy"),
                                "architecture": platform.machine(), "platform": platform.platform()},
                "highs_log": str(native_log) if native_log.exists() else None, "summary": report["summary"]}
+    metrics["changeover_analysis"] = changeovers
     with timed_stage(StageName.JSON_DUMP):
         publish_artifacts([(metrics_path, encode_report(metrics)), (html_path, html),
                            (args.output, schedule.model_dump_json(by_alias=True, indent=2) + "\n")], force=args.force)
     response = {"status": result.status, "objective_mode": mode, "objective_weights": weight_summary,
+                "working_changeover_weight": args.working_changeover_weight,
                 "weighted_value": result.weighted_value, "output": str(args.output), "html": str(html_path),
                 "metrics": str(metrics_path), "objectives": result.objectives, "summary": report["summary"]}
     logger.info(EventName.REPORT_WRITTEN, extra={"fields": response})
@@ -123,8 +136,18 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
 
 def validate_command(args) -> dict:
     problem = prepare_input(args.input)
+    bound = log_changeover_bound(problem.source)
     schedule = load_document(args.schedule, Schedule)
-    return check_schedule(problem, schedule)
+    report = check_schedule(problem, schedule)
+    if report["valid"]:
+        analysis = changeover_calendar_usage(problem, schedule)
+        lower = bound["lower_bound_minutes"]
+        if lower is not None:
+            analysis.update(lower_bound_minutes=lower,
+                            excess_changeover_minutes=analysis["total_changeover_minutes"] - lower,
+                            minimum_proven=analysis["total_changeover_minutes"] == lower)
+        logger.info(EventName.CHANGEOVER_ANALYSIS, extra={"fields": analysis})
+    return report
 
 
 def render_command(args, log_file: Path) -> dict:

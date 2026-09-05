@@ -85,8 +85,9 @@ def materialize_schedule(problem: Problem, result: "SolveResult", schedule_id: s
             if previous is not None:
                 duration = problem.changeover[previous.sku, run.sku]
                 if duration:
-                    slots.append({"type": "changeover", "start": problem.timestamp(previous.end),
-                                  "end": problem.timestamp(previous.end + duration), "fromProduct": previous.sku,
+                    start = run.setup_start if run.setup_start is not None else previous.end
+                    slots.append({"type": "changeover", "start": problem.timestamp(start),
+                                  "end": problem.timestamp(start + duration), "fromProduct": previous.sku,
                                   "toProduct": run.sku, "durationMinutes": duration * problem.precision})
             remaining = run.quantity
             for window in problem.windows:

@@ -6,7 +6,7 @@ import math
 from pathlib import Path
 from time import perf_counter
 
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, ObjectiveMode, SolverStatus
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, ObjectiveMode, SolverStatus, AdditionalObjectiveName
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.problem import Problem
 
@@ -22,6 +22,7 @@ class Run:
     start: int
     end: int
     predecessor: str | None
+    setup_start: int | None = None
 
 
 @dataclass
@@ -35,12 +36,16 @@ class SolveResult:
     weighted_value: float | None = None
 
 
-def validate_objective_options(mode, weights):
+def validate_objective_options(mode, weights, working_changeover_weight=0):
     try:
         mode = ObjectiveMode(mode)
     except ValueError as exc:
         raise ApplicationError(ErrorCode.CLI_ERROR, "Unknown objective mode") from exc
+    if not math.isfinite(working_changeover_weight) or working_changeover_weight < 0:
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Working changeover weight must be finite and nonnegative")
     if mode == ObjectiveMode.LEXICOGRAPHIC:
+        if working_changeover_weight:
+            raise ApplicationError(ErrorCode.CLI_ERROR, "Working changeover penalty requires weighted mode")
         if weights is not None:
             raise ApplicationError(ErrorCode.CLI_ERROR, "Objective weights require weighted mode")
         return mode, None
@@ -56,8 +61,12 @@ def proven_integer_optimum(value: float, bound: float) -> bool:
 
 
 class SchedulingMilp:
-    def __init__(self, problem: Problem) -> None:
+    def __init__(self, problem: Problem, *, working_changeover_weight: float = 0) -> None:
         self.problem = problem
+        if not math.isfinite(working_changeover_weight) or working_changeover_weight < 0:
+            raise ApplicationError(ErrorCode.CLI_ERROR, "Working changeover weight must be finite and nonnegative")
+        self.working_changeover_weight = working_changeover_weight
+        self.working_changeover_objective: dict[int, float] = {}
         self.names: list[str] = []
         self.lower: list[float] = []
         self.upper: list[float] = []
@@ -69,6 +78,8 @@ class SchedulingMilp:
         self.arcs: dict[tuple[str, str, str], int] = {}
         self.objectives: dict[ObjectiveName, dict[int, float]] = {name: {} for name in ObjectiveName}
         self.build()
+        if working_changeover_weight:
+            self.build_setup_times()
 
     def variable(self, name: str, upper: float, *, integer: bool = True) -> int:
         index = len(self.names)
@@ -155,6 +166,56 @@ class SchedulingMilp:
                 self.row(incoming, 0, 0)
                 self.row(outgoing, 0, 0)
 
+    def build_setup_times(self) -> None:
+        """Place each incoming setup in calendar time and measure its occupied work ticks.
+
+        Partition the whole horizon into work and nonwork segments. On each
+        segment cumulative work time is affine: F(t) = work_before + slope * offset.
+        Select segments for both setup endpoints, then occupied work is F(end)-F(start).
+        """
+        problem = self.problem
+        segments = []
+        cursor = work_before = 0
+        for window in problem.windows:
+            if cursor < window.start:
+                segments.append((cursor, window.start, work_before, 0))
+            segments.append((window.start, window.end, work_before, 1))
+            work_before += window.end - window.start
+            cursor = window.end
+        if cursor < problem.horizon:
+            segments.append((cursor, problem.horizon, work_before, 0))
+        for (sku, line), v in self.variables.items():
+            start = self.variable(f"setup_start[{sku},{line}]", problem.horizon)
+            end = self.variable(f"setup_end[{sku},{line}]", problem.horizon)
+            occupied = self.variable(f"setup_working[{sku},{line}]", problem.horizon)
+            v.update(setup_start=start, setup_end=end, setup_working=occupied)
+            self.working_changeover_objective[occupied] = 1
+            # assign-first is one exactly when this run has a predecessor.
+            for endpoint in (start, end):
+                self.row({endpoint: 1, v["assign"]: -problem.horizon, v["first"]: problem.horizon}, upper=0)
+            self.row({end: 1, v["start"]: -1}, upper=0)
+            duration = {end: 1, start: -1}
+            for (previous, following, candidate), arc in self.arcs.items():
+                if following == sku and candidate == line:
+                    duration[arc] = -problem.changeover[previous, sku]
+                    self.row({start: 1, self.variables[previous, line]["end"]: -1,
+                              arc: -problem.horizon}, lower=-problem.horizon)
+            self.row(duration, 0, 0)
+            work = {occupied: -1}
+            for name, endpoint, sign in (("start", start, -1), ("end", end, 1)):
+                selection = {v["assign"]: -1, v["first"]: 1}
+                clock = {endpoint: -1}
+                for k, (a, b, cumulative, slope) in enumerate(segments):
+                    z = self.variable(f"setup_{name}_segment[{sku},{line},{k}]", 1)
+                    offset = self.variable(f"setup_{name}_offset[{sku},{line},{k}]", b-a, integer=False)
+                    self.row({offset: 1, z: -(b-a)}, upper=0)
+                    selection[z] = 1
+                    clock.update({z: a, offset: 1})
+                    work.update({z: sign * cumulative, offset: sign * slope})
+                self.row(selection, 0, 0)
+                self.row(clock, 0, 0)
+            self.row(work, 0, 0)
+
     def extract(self, values: list[float]) -> list[Run]:
         def integer(index: int) -> int:
             value = values[index]
@@ -168,14 +229,15 @@ class SchedulingMilp:
                 if len(predecessors) > 1:
                     raise ApplicationError(ErrorCode.SOLVER_ERROR, "Invalid predecessor result", ExitCode.INTERNAL_ERROR)
                 runs.append(Run(sku, line, *(integer(v[key]) for key in ("quantity", "duration", "start", "end")),
-                                predecessors[0] if predecessors else None))
+                                predecessors[0] if predecessors else None,
+                                integer(v["setup_start"]) if predecessors and "setup_start" in v else None))
         return runs
 
     def solve(self, *, time_limit: float = 300, mip_gap: float = 0, seed: int = 0,
               threads: int = 1, log_path: Path | None = None,
               objective_mode: ObjectiveMode = ObjectiveMode.LEXICOGRAPHIC,
               objective_weights: tuple[float, ...] | None = None) -> SolveResult:
-        objective_mode, weights = validate_objective_options(objective_mode, objective_weights)
+        objective_mode, weights = validate_objective_options(objective_mode, objective_weights, self.working_changeover_weight)
         weighted = objective_mode == ObjectiveMode.WEIGHTED
         expressions = self.objectives
         weighted_offset = 0.0
@@ -184,6 +246,8 @@ class SchedulingMilp:
             for weight, expression in zip(weights, self.objectives.values()):
                 for index, coefficient in expression.items():
                     combined[index] = combined.get(index, 0.0) + weight * coefficient
+            for index, coefficient in self.working_changeover_objective.items():
+                combined[index] = self.working_changeover_weight * coefficient
             weighted_offset = -weights[1] * len(self.problem.demand)
             if not math.isfinite(weighted_offset) or any(not math.isfinite(c) for c in combined.values()):
                 raise ApplicationError(ErrorCode.CLI_ERROR, "Weights overflow objective coefficients")
@@ -198,7 +262,10 @@ class SchedulingMilp:
                  "eligible_pairs": len(self.variables), "route_arcs": len(self.arcs),
                  "work_windows": len(self.problem.windows)}
         if not self.problem.demand:
-            return SolveResult([], SolverStatus.OPTIMAL, {key: 0 for key in ObjectiveName}, [], model, 0,
+            objectives = {key: 0 for key in ObjectiveName}
+            if self.working_changeover_weight:
+                objectives[AdditionalObjectiveName.WORKING_CHANGEOVER] = 0
+            return SolveResult([], SolverStatus.OPTIMAL, objectives, [], model, 0,
                                0.0 if weighted else None)
         # HiGHS keeps a process-global thread pool. Sequential CLI calls may request a different size.
         highspy.Highs.resetGlobalScheduler(True)
@@ -293,4 +360,8 @@ class SchedulingMilp:
         }
         status = SolverStatus.OPTIMAL if len(passes) == len(expressions) and all(p["proven_optimal"] for p in passes) else SolverStatus.FEASIBLE
         weighted_value = sum(w * objectives[name] for w, name in zip(weights, ObjectiveName)) if weighted else None
+        if self.working_changeover_weight:
+            occupied = sum(round(best.col_value[index]) for index in self.working_changeover_objective)
+            objectives[AdditionalObjectiveName.WORKING_CHANGEOVER] = occupied
+            weighted_value += self.working_changeover_weight * occupied
         return SolveResult(runs, status, objectives, passes, model, (perf_counter() - started) * 1000, weighted_value)
