@@ -27,7 +27,7 @@ def test_solve_validate_render(command_case, capsys):
     assert Path(metrics["highs_log"]).is_file()
     assert main(["validate", "--input", command_case[2], "--schedule", result["output"]]) == 0
     assert json.loads(capsys.readouterr().out)["valid"]
-    assert main(["render", "--schedule", result["output"], "--html-output", "output/other.html"]) == 0
+    assert main(["render", "--schedule", result["output"], "--input", command_case[2], "--html-output", "output/other.html"]) == 0
     capsys.readouterr()
     assert Path("output/other.html").read_text() == Path(result["html"]).read_text()
     assert main(["render", "--schedule", result["output"], "--html-output", "output/other.html"]) == 8
@@ -56,7 +56,7 @@ def test_force_and_renderer_failure_preserve_outputs(command_case, monkeypatch, 
     path = Path("output") / existing
     path.write_text("previous")
     assert main(command_case) == 8
-    def fail(_):
+    def fail(*_):
         raise RuntimeError("injected renderer failure")
     monkeypatch.setattr(pipeline, "render_html", fail)
     assert main([*command_case, "--force"]) == 8

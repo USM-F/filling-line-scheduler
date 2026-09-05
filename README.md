@@ -9,7 +9,7 @@
 ./scripts/run.sh inspect --input test/data/filling_only_20_product_assignment_input.json
 ./scripts/run.sh solve --input test/data/filling_only_20_product_assignment_input.json --output output/schedule.json
 ./scripts/run.sh validate --input test/data/filling_only_20_product_assignment_input.json --schedule output/schedule.json
-./scripts/run.sh render --schedule output/schedule.json --html-output output/another-view.html
+./scripts/run.sh render --schedule output/schedule.json --input test/data/filling_only_20_product_assignment_input.json --html-output output/another-view.html
 ```
 
 По умолчанию используется `--objective-mode lexicographic`. Для общей взвешенной цели:
@@ -47,6 +47,9 @@
 рабочих и нерабочих минут переналадок.
 
 `solve` сохраняет JSON, автономный HTML Gantt и metrics рядом с расписанием.
+Гант показывает makespan от начала горизонта, число переналадок, полные и частичные
+попадания в перерывы и их длительность в нерабочее время, включая промежутки между сменами.
+Для этих календарных показателей при отдельном `render` нужен `--input` с исходной задачей.
 По умолчанию: один поток, seed 0, gap 0, общий лимит 300 секунд.
 Проверенный результат по лимиту сохраняется со статусом `FEASIBLE`.
 Логи — stderr и `.logs/`; `--debug` включает подробности.

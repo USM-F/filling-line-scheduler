@@ -66,10 +66,10 @@ def prepare_input(path: Path):
         return prepare_problem(source)
 
 
-def checked_html(schedule: Schedule) -> str:
+def checked_html(schedule: Schedule, problem=None) -> str:
     with timed_stage(StageName.HTML_RENDER):
         try:
-            return render_html(schedule)
+            return render_html(schedule, problem)
         except Exception as exc:
             raise ApplicationError(ErrorCode.RENDER_ERROR, "Cannot render schedule", ExitCode.ARTIFACT_ERROR) from exc
 
@@ -110,7 +110,7 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     changeovers = changeover_calendar_usage(problem, schedule)
     if args.working_changeover_weight and changeovers["working_changeover_minutes"] != result.objectives[AdditionalObjectiveName.WORKING_CHANGEOVER] * problem.precision:
         raise ApplicationError(ErrorCode.SOLVER_ERROR, "Working changeover objective disagrees with physical slots", ExitCode.INTERNAL_ERROR)
-    html = checked_html(schedule)
+    html = checked_html(schedule, problem)
     metrics = {"scheduleId": schedule.schedule_id, "status": result.status, "independently_validated": True,
                "objectives": result.objectives, "passes": result.passes, "model": result.model,
                "weighted_value": result.weighted_value,
@@ -151,8 +151,10 @@ def validate_command(args) -> dict:
 
 
 def render_command(args, log_file: Path) -> dict:
-    check_outputs([args.html_output], [args.schedule, log_file], force=args.force)
+    inputs = [args.schedule, log_file] + ([args.input] if args.input else [])
+    check_outputs([args.html_output], inputs, force=args.force)
     schedule = load_document(args.schedule, Schedule)
-    html = checked_html(schedule)
+    problem = prepare_input(args.input) if args.input else None
+    html = checked_html(schedule, problem)
     publish_artifacts([(args.html_output, html)], force=args.force)
     return {"html": str(args.html_output), "scheduleId": schedule.schedule_id}

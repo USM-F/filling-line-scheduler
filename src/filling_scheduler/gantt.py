@@ -6,6 +6,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from filling_scheduler.schedule import Schedule
+from filling_scheduler.problem import Problem
 
 
 def sku_color(sku: str) -> str:
@@ -13,7 +14,35 @@ def sku_color(sku: str) -> str:
     return f"hsl({hue}, 62%, 45%)"
 
 
-def render_html(schedule: Schedule) -> str:
+def timing_summary(schedule: Schedule, problem: Problem | None) -> dict:
+    """Calendar statistics from physical slots; idle gaps alone do not identify breaks."""
+    slots = [slot for line in schedule.lines for slot in line.slots]
+    setups = [slot for slot in slots if slot.type == "changeover"]
+    result = dict(changeover_count=len(setups), makespan_minutes=None,
+                  fully_in_break=None, partly_in_break=None, break_minutes=None)
+    if problem is None:
+        return result
+    origin = problem.start.timestamp()
+    step = problem.precision * 60
+    windows = [(origin + w.start * step, origin + w.end * step) for w in problem.windows]
+    if any(s.start.timestamp() < origin or s.end.timestamp() > origin + problem.horizon * step for s in slots):
+        raise ValueError("Schedule slots fall outside the supplied planning horizon")
+    ends = [s.end.timestamp() for s in slots if s.type == "production"]
+    result["makespan_minutes"] = (max(ends) - origin) / 60 if ends else 0
+    fully = partly = 0
+    paused = 0.0
+    for slot in setups:
+        start, end = slot.start.timestamp(), slot.end.timestamp()
+        working = sum(max(0, min(end, b) - max(start, a)) for a, b in windows)
+        nonworking = end - start - working
+        paused += nonworking
+        fully += working == 0
+        partly += working > 0 and nonworking > 0
+    result.update(fully_in_break=fully, partly_in_break=partly, break_minutes=paused / 60)
+    return result
+
+
+def render_html(schedule: Schedule, problem: Problem | None = None) -> str:
     e = escape
     zone = ZoneInfo(schedule.time_zone)
     slots = [slot for line in schedule.lines for slot in line.slots]
@@ -22,10 +51,23 @@ def render_html(schedule: Schedule) -> str:
     products = sorted({slot.sku_id for slot in slots if slot.type == "production"})
     header = f"<h1>График разлива</h1><p>{e(schedule.schedule_id)} · {e(schedule.time_zone)}</p>"
     summary = schedule.summary
+    timing = timing_summary(schedule, problem)
+    makespan = f'{timing["makespan_minutes"]:g} мин' if problem is not None else 'нет данных'
     header += (f'<div class="stats"><span><b>{sum(summary.produced_by_product.values()):,}</b> единиц</span>'
+               f'<span><b>{makespan}</b> Makespan — от начала горизонта</span>'
+               f'<span><b>{timing["changeover_count"]}</b> переналадок</span>'
                f'<span><b>{summary.total_changeover_minutes:,}</b> мин переналадок</span>'
                f'<span><b>{summary.products_split}</b> SKU на нескольких линиях</span>'
-               f'<span><b>{summary.slot_count}</b> слотов</span></div>')
+               f'<span><b>{summary.slot_count}</b> слотов</span>')
+    if problem is not None:
+        header += (f'<span><b>{timing["fully_in_break"]}</b> переналадок полностью в перерывах</span>'
+                   f'<span><b>{timing["partly_in_break"]}</b> переналадок частично в перерывах</span>'
+                   f'<span><b>{timing["break_minutes"]:g}</b> мин переналадок в перерывах</span></div>'
+                   '<p>Перерывы — всё нерабочее время календаря, включая промежутки между сменами. '
+                   'Полные и частичные попадания считаются отдельно.</p>')
+    else:
+        header += ('</div><p>Makespan и попадание переналадок в перерывы недоступны без календаря. '
+                   'Для их расчёта укажите исходный файл через render --input.</p>')
     legend = '<div class="legend">' + "".join(
         f'<span><i style="background:{sku_color(sku)}"></i>{e(sku)} — {summary.produced_by_product.get(sku, 0):,} ед.</span>'
         for sku in products

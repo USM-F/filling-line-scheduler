@@ -92,6 +92,7 @@ def build_parser() -> ArgumentParser:
     validate.add_argument("--schedule", required=True, type=Path)
     render = commands.add_parser("render", help="Render an offline HTML Gantt", allow_abbrev=False)
     render.add_argument("--schedule", required=True, type=Path)
+    render.add_argument("--input", type=Path, help="Source problem for makespan and changeovers during calendar breaks")
     render.add_argument("--html-output", required=True, type=Path)
     render.add_argument("--force", action="store_true")
     for command in (inspect, solve, validate, render):
