@@ -193,12 +193,6 @@ def test_all_failure_keeps_previous_bundle(command_case, monkeypatch, capsys, fa
         assert next(r for r in records if r["event"] == "schedule_validated")["valid"] is False
 
 
-def test_thread_count_can_change_between_commands(command_case):
-    assert main(command_case) == 0
-    assert main([*command_case, "--threads", "2"]) == 0
-    assert main([*command_case, "--threads", "1"]) == 0
-
-
 def test_weighted_cli_and_metrics(command_case, capsys):
     assert main([*command_case, "--objective-mode", "weighted", "--objective-weights", "1", "30", "0.1", "0.01"]) == 0
     response = json.loads(capsys.readouterr().out)

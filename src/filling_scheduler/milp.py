@@ -301,7 +301,7 @@ class SchedulingMilp:
         self.row(self.objectives[objective], raw, raw)
 
     def solve_pass(self, objective, *, time_limit: float, incumbent=None,
-                   mip_gap=0, seed=0, threads=1, log_path=None,
+                   mip_gap=0, seed=0, log_path=None,
                    expression=None, offset=None) -> PassResult:
         """One bounded native solve. Incumbents survive a limit without a new solution."""
         import highspy
@@ -321,13 +321,11 @@ class SchedulingMilp:
             return PassResult(values, record)
         if time_limit <= 0:
             return finish(incumbent)
-        # HiGHS keeps a process-global thread pool. Sequential CLI calls may request a different size.
-        highspy.Highs.resetGlobalScheduler(True)
         h = highspy.Highs()
         def checked(status) -> None:
             if status == highspy.HighsStatus.kError:
                 raise ApplicationError(ErrorCode.SOLVER_ERROR, "HiGHS rejected model or option", ExitCode.INTERNAL_ERROR)
-        for key, value in {"threads": threads, "random_seed": seed, "mip_rel_gap": mip_gap,
+        for key, value in {"threads": 1, "random_seed": seed, "mip_rel_gap": mip_gap,
                            "mip_abs_gap": 0.0, "log_to_console": False, "output_flag": log_path is not None}.items():
             checked(h.setOptionValue(key, value))
         if offset:
@@ -395,7 +393,7 @@ class SchedulingMilp:
         return finish(values)
 
     def solve(self, *, time_limit: float = 300, mip_gap: float = 0, seed: int = 0,
-              threads: int = 1, log_path: Path | None = None,
+              log_path: Path | None = None,
               objective_mode: ObjectiveMode = ObjectiveMode.LEXICOGRAPHIC,
               objective_weights: tuple[float, ...] | None = None,
               optimize_timing: bool = True) -> SolveResult:
@@ -431,7 +429,7 @@ class SchedulingMilp:
                 result = self.solve_pass(objective, expression=expression,
                     offset=-weights[1] * len(self.problem.demand) if weighted else None,
                     time_limit=remaining, incumbent=best, mip_gap=mip_gap, seed=seed,
-                    threads=threads, log_path=log_path)
+                    log_path=log_path)
                 passes.append(result.record)
                 best = result.values
                 if weighted or not result.record["proven_optimal"]:

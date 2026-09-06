@@ -33,16 +33,6 @@ class ArgumentParser(argparse.ArgumentParser):
         raise ParserExit(status)
 
 
-def positive_int(value: str) -> int:
-    try:
-        result = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("expected a positive integer") from exc
-    if result <= 0:
-        raise argparse.ArgumentTypeError("expected a positive integer")
-    return result
-
-
 def finite_float(value: str, *, positive: bool = False) -> float:
     try:
         result = float(value)
@@ -73,7 +63,6 @@ def build_parser() -> ArgumentParser:
                                 allow_abbrev=False)
     solve.add_argument("--input", required=True, type=Path)
     solve.add_argument("--output", required=True, type=Path)
-    solve.add_argument("--threads", type=positive_int, default=1)
     solve.add_argument("--time-limit-seconds", type=lambda value: finite_float(value, positive=True), default=300.0)
     solve.add_argument("--mip-gap", type=finite_float, default=0.0)
     solve.add_argument("--seed", type=int, default=0)
