@@ -1,27 +1,23 @@
 from dataclasses import replace
 import json
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
 from filling_scheduler.cli import main
-from filling_scheduler.decomposition import solve_decomposed
 from filling_scheduler.milp import SchedulingMilp, run_objectives
 from filling_scheduler.schedule import materialize_schedule
 from filling_scheduler.timing import left_shift
 from filling_scheduler.validation import validate_schedule
-from test_decomposition import independent, makespan_tradeoff, prepared
-from test_milp import example, calendar_example
+from data_generators import independent, makespan_tradeoff, prepared
+from data_generators import example, calendar_example
 
 
 @pytest.mark.parametrize("data", [example(), example({"A": 0}), example({"A": 3}, units=2),
                                    calendar_example(), independent(), makespan_tradeoff()])
-@pytest.mark.parametrize("decomposition", [False, True])
-def test_left_shift_preserves_business_objectives_and_feasibility(data, decomposition):
+def test_left_shift_preserves_business_objectives_and_feasibility(data):
     problem = prepared(data)
-    result = solve_decomposed(problem, optimize_timing=False) if decomposition else SchedulingMilp(problem).solve(optimize_timing=False)
+    result = SchedulingMilp(problem).solve(optimize_timing=False)
     assert all(p["objective"] in ("changeover_ticks", "split_excess") for p in result.passes)
     original = result.runs
     result.runs = left_shift(problem, original)
@@ -48,16 +44,13 @@ def test_shift_actually_removes_idle_time_and_rejects_impossible_runs():
 
 
 @pytest.mark.parametrize("mode", [None, "none", "exact"])
-@pytest.mark.parametrize("decomposition", [False, True])
-def test_cli_timing_modes(tmp_path, monkeypatch, capsys, mode, decomposition):
+def test_cli_timing_modes(tmp_path, monkeypatch, capsys, mode):
     monkeypatch.chdir(tmp_path)
     source = Path("input.json")
     source.write_text(json.dumps(makespan_tradeoff()))
     args = ["solve", "--input", str(source), "--output", "out.json"]
     if mode:
         args.extend(["--timing-mode", mode])
-    if decomposition:
-        args.append("--decomposition")
     assert main(args) == 0
     response = json.loads(capsys.readouterr().out)
     metrics = json.loads(Path("out.metrics.json").read_text())
@@ -77,7 +70,3 @@ def test_weighted_cannot_silently_replace_explicit_time_objectives(tmp_path, mon
                  "--objective-mode", "weighted", "--objective-weights", "1", "1", "1", "1",
                  "--timing-mode", mode]) == 2
     assert not Path("out.json").exists()
-
-
-def test_timing_does_not_import_solver():
-    subprocess.run([sys.executable, "-c", "import filling_scheduler.timing, sys; assert 'highspy' not in sys.modules; assert 'filling_scheduler.milp' not in sys.modules"], check=True)

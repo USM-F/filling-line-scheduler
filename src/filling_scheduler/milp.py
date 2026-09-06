@@ -1,6 +1,6 @@
 """One integrated split/route/event-calendar MILP; native HiGHS is loaded lazily."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import logging
 import math
 from pathlib import Path
@@ -34,7 +34,6 @@ class SolveResult:
     model: dict[str, int]
     elapsed_ms: float
     weighted_value: float | None = None
-    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -296,14 +295,14 @@ class SchedulingMilp:
                 round(values[index]) for index in self.working_changeover_objective)
         return objectives
 
-    def fix_objective(self, objective: ObjectiveName, value: int, *, upper_only=False) -> None:
+    def fix_objective(self, objective: ObjectiveName, value: int) -> None:
         # The split expression counts assignments; public values subtract active SKU.
         raw = value + (len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0)
-        self.row(self.objectives[objective], -math.inf if upper_only else raw, raw)
+        self.row(self.objectives[objective], raw, raw)
 
     def solve_pass(self, objective, *, time_limit: float, incumbent=None,
                    mip_gap=0, seed=0, threads=1, log_path=None,
-                   expression=None, offset=None, context=None) -> PassResult:
+                   expression=None, offset=None) -> PassResult:
         """One bounded native solve. Incumbents survive a limit without a new solution."""
         import highspy
         import numpy as np
@@ -313,8 +312,7 @@ class SchedulingMilp:
         if offset is None:
             offset = -len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0
         record = {"objective": objective, "highs_status": "NOT_RUN", "proven_optimal": False,
-                  "value": None, "bound": None, "gap": None, "nodes": 0, "elapsed_ms": 0,
-                  **(context or {})}
+                  "value": None, "bound": None, "gap": None, "nodes": 0, "elapsed_ms": 0}
         def finish(values):
             record["elapsed_ms"] = (perf_counter() - started) * 1000
             if values is not None:

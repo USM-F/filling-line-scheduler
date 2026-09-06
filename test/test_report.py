@@ -2,13 +2,13 @@ import pytest
 
 from filling_scheduler.enums import ErrorCode
 from filling_scheduler.errors import ApplicationError
-from filling_scheduler.report import write_report, publish_artifacts
+from filling_scheduler.report import publish_artifacts
 
 
 def test_publish_overwrites_by_default(tmp_path):
     path = tmp_path / "nested" / "report.json"
-    write_report(path, "first\n")
-    write_report(path, "second\n")
+    publish_artifacts([(path, "first\n")])
+    publish_artifacts([(path, "second\n")])
     assert path.read_text() == "second\n"
     assert list(path.parent.iterdir()) == [path]
 
@@ -17,7 +17,7 @@ def test_write_error(tmp_path):
     path = tmp_path / "file"
     path.write_text("not a directory")
     with pytest.raises(ApplicationError) as caught:
-        write_report(path / "report", "{}")
+        publish_artifacts([(path / "report", "{}")])
     assert caught.value.code == ErrorCode.OUTPUT_WRITE_ERROR
 
 
@@ -26,7 +26,7 @@ def test_overwrite_replaces_symlink_without_modifying_target(tmp_path):
     target.write_text("original")
     path = tmp_path / "report"
     path.symlink_to(target)
-    write_report(path, "report")
+    publish_artifacts([(path, "report")])
     assert target.read_text() == "original"
     assert not path.is_symlink()
 

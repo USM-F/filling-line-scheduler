@@ -33,8 +33,8 @@ def test_relative_parent_input_uses_work_directory_and_preserves_output(tmp_path
     work.mkdir()
     source = tmp_path / "input.json"
     source.write_text("{}")
-    args, mounts = prepare(work, "solve", "--input=../input.json", "--output", "output/result.json", "--force")
-    assert args == ["solve", f"--input={source}", "--output", "output/result.json", "--force"]
+    args, mounts = prepare(work, "solve", "--input=../input.json", "--output", "output/result.json", "--debug")
+    assert args == ["solve", f"--input={source}", "--output", "output/result.json", "--debug"]
     assert mounts == ["-v", f"{source}:{source}:ro"]
 
 

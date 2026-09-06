@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from filling_scheduler.cli import main
-from test_milp import example
+from data_generators import example
 
 
 @pytest.fixture
@@ -18,12 +18,12 @@ def command_case(tmp_path, monkeypatch):
 @pytest.mark.parametrize("command", ["solve", "all"])
 def test_solve_validate_render(command_case, capsys, command):
     command_case[0] = command
-    assert main([*command_case, "--timing-mode", "exact"]) == 0
+    assert main(command_case) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "OPTIMAL"
     metrics = json.loads(Path(result["metrics"]).read_text())
     assert metrics["independently_validated"]
-    assert len(metrics["passes"]) == 4
+    assert len(metrics["passes"]) == 2
     assert metrics["model"]["eligible_pairs"] == 2
     assert metrics["objectives"]["split_excess"] == 1
     assert Path(metrics["highs_log"]).is_file()
@@ -42,7 +42,6 @@ def test_solve_validate_render(command_case, capsys, command):
     assert Path("output/other.html").read_text() == Path(result["html"]).read_text()
     assert main(["render", "--schedule", result["output"], "--html-output", "output/other.html"]) == 0
     assert json.loads(capsys.readouterr().out)["html"] == "output/other.html"
-    assert main(["render", "--schedule", result["output"], "--html-output", "output/other.html", "--force"]) == 0
 
 
 def test_validation_report_and_format_errors(command_case, capsys):
@@ -74,7 +73,7 @@ def test_renderer_failure_preserves_outputs(command_case, monkeypatch, existing)
     assert list(Path("output").iterdir()) == [path]
 
 
-@pytest.mark.parametrize("extra", [["--workers", "2"], ["--work-dir", "x"], ["--keep-work-dir"], ["--seed", "-1"]])
+@pytest.mark.parametrize("extra", [["--workers", "2"], ["--seed", "-1"]])
 def test_unsupported_options(command_case, extra):
     assert main([*command_case, *extra]) == 2
     assert not Path("output/schedule.json").exists()
@@ -88,8 +87,7 @@ def test_no_incumbent_and_infeasible(command_case, capsys):
     assert not capsys.readouterr().out
 
 
-@pytest.mark.parametrize("extra", [[], ["--objective-mode", "weighted", "--objective-weights", "1", "1", "0.1", "0.01"]])
-def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys, extra):
+def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys):
     # Simulate a time-limit response around a real native incumbent, without flaky wall-clock races.
     import highspy
     class LimitedHighs(highspy.Highs):
@@ -102,7 +100,7 @@ def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys, extr
             info.mip_gap = float("inf")
             return info
     monkeypatch.setattr(highspy, "Highs", LimitedHighs)
-    assert main([*command_case, *extra]) == 0
+    assert main(command_case) == 0
     response = json.loads(capsys.readouterr().out)
     assert response["status"] == "FEASIBLE"
     metrics = json.loads(Path(response["metrics"]).read_text())
@@ -113,7 +111,7 @@ def test_feasible_incumbent_is_published(command_case, monkeypatch, capsys, extr
 
 def test_output_path_collisions(command_case):
     assert main([*command_case, "--html-output", "output/schedule.json"]) == 2
-    assert main([*command_case, "--html-output", command_case[2], "--force"]) == 2
+    assert main([*command_case, "--html-output", command_case[2]]) == 2
     assert main([*command_case, "--log-file", "output/schedule.metrics.json"]) == 2
     assert not Path("output/schedule.json").exists()
 
@@ -197,8 +195,8 @@ def test_all_failure_keeps_previous_bundle(command_case, monkeypatch, capsys, fa
 
 def test_thread_count_can_change_between_commands(command_case):
     assert main(command_case) == 0
-    assert main([*command_case, "--threads-per-worker", "2"]) == 0
-    assert main([*command_case, "--threads-per-worker", "1"]) == 0
+    assert main([*command_case, "--threads", "2"]) == 0
+    assert main([*command_case, "--threads", "1"]) == 0
 
 
 def test_weighted_cli_and_metrics(command_case, capsys):
@@ -216,10 +214,6 @@ def test_weighted_cli_and_metrics(command_case, capsys):
     assert len(metrics["passes"]) == 1
     assert Path(response["html"]).exists()
     assert main(["validate", "--input", command_case[2], "--schedule", response["output"]]) == 0
-    records = [json.loads(line) for p in Path(".logs").glob("*.jsonl") for line in p.read_text().splitlines()]
-    analysis = next(r for r in records if r["event"] == "changeover_analysis")
-    assert analysis["minimum_proven"]
-    assert analysis["excess_changeover_minutes"] == 0
 
 
 @pytest.mark.parametrize("extra", [
@@ -271,48 +265,3 @@ def test_fractional_weighted_gap_is_not_integer_proof(command_case, monkeypatch,
     metrics = json.loads(Path(response["metrics"]).read_text())
     assert not metrics["passes"][0]["proven_optimal"]
     assert metrics["passes"][0]["gap"] > 0
-
-
-def test_decomposition_cli(command_case, capsys):
-    from test_decomposition import makespan_tradeoff
-    Path(command_case[2]).write_text(json.dumps(makespan_tradeoff()))
-    assert main([*command_case, "--decomposition", "--timing-mode", "exact"]) == 0
-    response = json.loads(capsys.readouterr().out)
-    assert response["decomposition"]
-    metrics = json.loads(Path(response["metrics"]).read_text())
-    assert metrics["objectives"]["start_sum_ticks"] == 90
-    assert len(metrics["decomposition"]["components"]) == 2
-    assert metrics["decomposition"]["stop_reason"] == "optimal"
-    assert all(Path(r["highs_log"]).is_file() for c in metrics["decomposition"]["components"] for r in c["passes"])
-    assert '<b>300 мин</b> Makespan' in Path(response["html"]).read_text()
-    assert main(["validate", "--input", command_case[2], "--schedule", response["output"]]) == 0
-    assert main([*command_case, "--decomposition"]) == 0
-
-
-def test_decomposition_rejects_weighted(command_case):
-    assert main([*command_case, "--decomposition", "--objective-mode", "weighted",
-                 "--objective-weights", "1", "30", "0.1", "0.01"]) == 2
-    assert not Path("output").exists()
-
-
-@pytest.mark.parametrize("kind,code", [("infeasible", 3), ("limit", 4), ("merge", 6), ("render", 8)])
-def test_decomposition_failure_does_not_publish(command_case, monkeypatch, kind, code):
-    import filling_scheduler.decomposition as decomposition
-    import filling_scheduler.pipeline as pipeline
-    from filling_scheduler.errors import ApplicationError
-    from filling_scheduler.enums import ErrorCode, ExitCode
-    extra = []
-    if kind == "infeasible":
-        Path(command_case[2]).write_text(json.dumps(example({"A": 201})))
-    elif kind == "limit":
-        extra = ["--time-limit-seconds", "0.000000001"]
-    elif kind == "merge":
-        def fail(*args):
-            raise ApplicationError(ErrorCode.MERGE_CONFLICT, "injected", ExitCode.MERGE_CONFLICT)
-        monkeypatch.setattr(decomposition, "merge_runs", fail)
-    else:
-        def fail(*args):
-            raise ValueError("injected")
-        monkeypatch.setattr(pipeline, "render_html", fail)
-    assert main([*command_case, "--decomposition", *extra]) == code
-    assert not Path("output").exists()

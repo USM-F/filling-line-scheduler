@@ -13,7 +13,7 @@ from filling_scheduler.problem import prepare_problem
 from filling_scheduler.schedule import materialize_schedule, Schedule
 from filling_scheduler.timing import left_shift
 from filling_scheduler.validation import validate_schedule
-from test_milp import example
+from data_generators import example
 
 
 def data_for(rate, quantity, windows):
@@ -103,13 +103,10 @@ def test_rate_uses_actual_planning_precision():
     assert result.runs[0].duration == 12
 
 
-@pytest.mark.parametrize("mode", ["decomposed", "weighted", "heuristic"])
+@pytest.mark.parametrize("mode", ["weighted", "heuristic"])
 def test_fractional_speed_in_all_solver_modes(mode):
-    from filling_scheduler.decomposition import solve_decomposed
     problem = prepare_problem(SchedulingInput.model_validate(data_for(20000, 667, [(0, 1), (2, 4)])))
-    if mode == "decomposed":
-        result = solve_decomposed(problem, time_limit=20)
-    elif mode == "weighted":
+    if mode == "weighted":
         result = SchedulingMilp(problem).solve(time_limit=20, objective_mode="weighted", objective_weights=(1, 1, .1, .01))
     else:
         result = SchedulingMilp(problem).solve(time_limit=20, optimize_timing=False)
@@ -132,7 +129,7 @@ def test_decimal_rate_through_public_all_command(tmp_path, monkeypatch, capsys):
     assert main(["all", "--input", str(source), "--output", str(output)]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["summary"]["producedByProduct"] == {"A": 40001}
-    assert result["objectives"]["makespan_ticks"] == 120
+    assert result["makespan_minutes"] == 120
     assert output.with_suffix(".html").exists()
     assert main(["validate", "--input", str(source), "--schedule", str(output)]) == 0
     assert json.loads(capsys.readouterr().out)["valid"]

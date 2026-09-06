@@ -7,17 +7,7 @@ from filling_scheduler.problem import prepare_problem
 from filling_scheduler.milp import SchedulingMilp
 from filling_scheduler.schedule import materialize_schedule
 from filling_scheduler.validation import validate_schedule, changeover_calendar_usage
-from test_milp import example
-
-
-def lunch_example(a=120, b=60, setup=30, break_end="11:00"):
-    data = example({"A": a, "B": b}, lines=1)
-    data["planningHorizon"]["end"] = "2026-08-17T13:00:00+00:00"
-    data["calendar"]["shifts"] = [{"code": "DAY", "startTime": "08:00", "endTime": "13:00",
-                                   "breaks": [{"startTime": "10:00", "endTime": break_end}]}]
-    data["changeoverMatrixMinutes"]["A"]["B"] = setup
-    data["changeoverMatrixMinutes"]["B"]["A"] = setup
-    return prepare_problem(SchedulingInput.model_validate(data))
+from data_generators import example, lunch_example
 
 
 def checked(problem, result):
