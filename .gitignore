@@ -11,4 +11,5 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-output/
+output/*
+!output/certified_methods.md
