@@ -1,8 +1,0 @@
-"""CLI defaults shared with the future scheduling implementation."""
-
-DEFAULT_WORKERS = 1
-DEFAULT_THREADS_PER_WORKER = 1
-DEFAULT_TIME_LIMIT_SECONDS = 300.0
-DEFAULT_MIP_GAP = 0.0
-DEFAULT_SEED = 0
-DEFAULT_LOG_LEVEL = "INFO"

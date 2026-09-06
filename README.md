@@ -1,125 +1,40 @@
 # Filling-Line Scheduler
 
-## Запуск приложения
+Weekly filling-line scheduling from JSON: exact demand, eligible lines, shared shifts and breaks, sequence-dependent changeovers. [Assignment](docs/filling_only_20_product_assignment.md).
 
-Нужны Linux/WSL, Bash и Docker. Python 3.11 и зависимости устанавливаются в контейнере.
+HiGHS solves one MILP in two lexicographic passes: minimize total changeover time, then additional product-to-line assignments. Each product has at most one run per line. A calendar-aware left shift removes avoidable delays while preserving assignments, quantities and order. An independent validator checks the generated schedule. See the [MILP model](docs/milp_model.md).
 
-```bash
-./scripts/build.sh
-./scripts/run.sh inspect --input test/data/filling_only_20_product_assignment_input.json
-./scripts/run.sh solve --input test/data/filling_only_20_product_assignment_input.json --output output/schedule.json
-./scripts/run.sh solve --input test/data/filling_only_20_product_assignment_input.json --output output/decomposed.json --decomposition
-./scripts/run.sh validate --input test/data/filling_only_20_product_assignment_input.json --schedule output/schedule.json
-./scripts/run.sh render --schedule output/schedule.json --input test/data/filling_only_20_product_assignment_input.json --html-output output/another-view.html
-```
+## Run
 
-По умолчанию используется `--objective-mode lexicographic --timing-mode heuristic`:
-MILP минимизирует переналадки и дополнительные назначения на линии, затем расписание
-сдвигается влево с сохранением объёмов и порядка продуктов.
-Это две цели исходного ТЗ; минимизация makespan и суммы стартов — дополнительные опции.
-`--timing-mode exact` включает четыре точные цели, `--timing-mode none` оставляет
-времена из допустимого решения MILP. В режимах `heuristic` и `none` статус `OPTIMAL`
-означает доказанный минимум первых двух целей. Список доказанных целей есть в
-`proven_objectives`; makespan и сумма стартов остаются измеряемыми показателями.
-
-Для общей взвешенной цели:
+Requires Linux/WSL, Bash and Docker. The wrapper builds the Python environment on first use; subsequent runs execute offline.
 
 ```bash
-./scripts/run.sh solve --input test/data/filling_only_20_product_assignment_input.json \
-  --output output/weighted.json --objective-mode weighted \
-  --objective-weights 1 30 0.1 0.01
+./scripts/run.sh all \
+  --input test/data/filling_only_20_product_assignment_input.json \
+  --output output/schedule.json
 ```
 
-Порядок аргументов: `--objective-weights F1 F2 F3 F4`.
+`all` (alias: `solve`) checks the input, solves, validates and writes:
 
-| Позиция | Вес в примере | Что регулирует | Эффект увеличения веса относительно остальных |
-| --- | ---: | --- | --- |
-| F1 | `1` | Суммарное время переналадок | Сильнее штрафует длительные переналадки |
-| F2 | `30` | Дополнительные назначения продуктов на линии | Сильнее штрафует разделение продукта: две линии дают одно дополнительное назначение, три — два |
-| F3 | `0.1` | Makespan — время окончания последнего запуска от начала горизонта | Повышает важность более раннего завершения всего производства |
-| F4 | `0.01` | Сумма времён начала запусков от начала горизонта | Повышает важность более ранних стартов в сумме по всем запускам |
+- `schedule.json`: ordered production and changeover slots.
+- `schedule.html`: standalone Gantt chart.
+- `schedule.metrics.json`: objectives, solver bounds, proof status and timings.
 
-В примере минимизируется `1 × F1 + 30 × F2 + 0.1 × F3 + 0.01 × F4`.
-Нулевой вес исключает соответствующую цель из суммы, сохраняя ограничения задачи.
-Временные цели F1, F3 и F4 измеряются в дискретах `precisionMinutes`, F2 — в количестве
-дополнительных назначений; автоматического нормирования нет.
-Веса обязательны только для `weighted`, конечны,
-неотрицательны и не могут быть одновременно нулевыми. Режим, веса, четыре значения
-целей и `weighted_value` сохраняются в metrics. `OPTIMAL` в режиме `weighted`
-относится к общей сумме; при ненулевом оставшемся gap результат отмечается `FEASIBLE`.
-В `weighted` эвристика не применяется: учитываются все явно заданные веса.
+Existing outputs are replaced after validation, with backups for publication rollback. Logs go to `.logs/`.
 
-Опционально добавьте `--working-changeover-weight 1`: в `weighted` появится отдельный
-штраф за каждый рабочий дискрет, занятый переналадкой. Модель сможет подождать
-перерыва перед переналадкой, сравнивая экономию рабочих минут с задержкой производства.
-Вес `0` используется по умолчанию и не добавляет эту часть модели. Четыре основных
-веса сохраняют свой смысл; длительность переналадки F1 не уменьшается от попадания в обед.
-В metrics добавляются `working_changeover_ticks` и `changeover_analysis` с разделением
-рабочих и нерабочих минут переналадок.
-
-`--decomposition` разбивает активный граф SKU–линия на независимые компоненты и
-решает их последовательно в одном процессе. Режим доступен только для `lexicographic`;
-`weighted` запускается без этого флага. Все компоненты используют общий лимит
-`--time-limit-seconds` (по умолчанию 300 секунд), а не отдельный лимит на каждую.
-В каждом проходе оставшееся время делится между ещё не обработанными компонентами;
-остаток передаётся повторным попыткам недоказанных результатов. Следующая цель
-начинается только после доказательства предыдущей во всех компонентах.
-Параллельные workers и рабочие каталоги пока недоступны (`--workers 1`).
-Metrics содержат состав компонент, локальные проходы, границы глобальных целей и причину
-остановки. При лимите расписание сохраняется только при наличии решения каждой компоненты
-и успешной независимой проверке; native HiGHS-логи разделены по компонентам и попыткам.
-
-`solve` сохраняет JSON, автономный HTML Gantt и metrics рядом с расписанием.
-Гант показывает makespan от начала горизонта, число переналадок, полные и частичные
-попадания в перерывы и их длительность в нерабочее время, включая промежутки между сменами.
-Для этих календарных показателей при отдельном `render` нужен `--input` с исходной задачей.
-По умолчанию: один поток, seed 0, gap 0, общий лимит 300 секунд.
-Проверенный результат по лимиту сохраняется со статусом `FEASIBLE`.
-Логи — stderr и `.logs/`; `--debug` включает подробности.
-`inspect` и `validate` записывают в INFO-лог нижнюю оценку времени переналадок
-(`changeover_lower_bound`). После успешного `validate` событие `changeover_analysis`
-показывает фактическую длительность, превышение оценки и занятые рабочие/нерабочие минуты.
-Совпадение с оценкой доказывает минимум только суммарной длительности переналадок.
-`--force` разрешает перезапись; в `run.sh` он также пересоздаёт venv,
-а `build.sh --force` пересобирает image.
-Для внешних данных задайте `FLS_WORK_DIR=/путь/к/данным`; по умолчанию монтируется текущий каталог.
-
-## Запуск тестов
+HiGHS runs with one thread. Defaults: a shared 300-second solve budget, zero MIP gap, seed 0. Override with `--time-limit-seconds`, `--mip-gap`, `--seed`; use `--debug` for diagnostics. `OPTIMAL` means both objectives are proven; `FEASIBLE` means a validated incumbent without a complete proof. Makespan is reported, not optimized.
 
 ```bash
-./scripts/run_tests.sh
-./scripts/run_tests.sh -m baseline --no-cov
-./scripts/run_tests.sh --smoke
+./scripts/run.sh inspect --input input.json
+./scripts/run.sh validate --input input.json --schedule output/schedule.json
+./scripts/run.sh render --input input.json --schedule output/schedule.json --html-output output/schedule.html
+./scripts/run.sh all --help
 ```
 
-Тесты находятся в `test/`, данные — в `test/data/`, покрытие — `.cache/coverage.xml`.
-Baseline запускает монолитный и декомпозированный режимы, каждому даёт 300 секунд.
-Артефакты — `output/baseline.*`, `output/baseline-decomposed.*` и
-`output/baseline-comparison.json`; HTML содержит диаграммы обоих результатов.
-На push и pull request GitHub Actions запускает оба baseline на приложенном
-`test/data/filling_only_20_product_assignment_input.json` и сохраняет весь `output/`
-в артефакт **scheduler-output**: JSON-расписания, HTML Ганты, metrics и сравнение.
-Скачать его можно в **Actions → Scheduler checks → нужный запуск → Artifacts**.
-Логи и покрытие доступны отдельно в **scheduler-diagnostics**.
-Контрольный запуск 06.09.2026 с двумя целями и эвристикой: монолитный режим — 4,8 с,
-декомпозиция — 29,3 с; оба доказали 210 минут переналадок и ноль дополнительных
-назначений. Makespan после сдвига — 2272 и 2256 минут соответственно, без доказательства
-его оптимальности. Это одиночное измерение; ускорения от декомпозиции здесь не получено.
-Docker smoke проверяет окружение, `--force`, пути с пробелами и запуск без сети.
+## Test
 
-## Описание модели
-
-Входной JSON задаёт спрос, совместимость продуктов и линий, скорости, смены с перерывами
-и матрицу переналадок. MILP через HiGHS распределяет целый объём SKU между одной или
-несколькими линиями, выбирает порядок и время. На каждой линии SKU образует один run;
-перерывы приостанавливают производство, переналадки могут идти в нерабочее время.
-
-В лексикографическом режиме основные цели — переналадки → дополнительные
-назначения SKU на линии. `--timing-mode exact` добавляет makespan → сумму стартов.
-Следующая цель решается после
-доказательства оптимума предыдущей. Во взвешенном режиме минимизируется их линейная
-композиция за один проход, с возможностью компромиссов между целями.
-`validate` независимо проверяет физические слоты; `inspect` проверяет только входную схему.
-
-[Постановка задачи](docs/filling_only_20_product_assignment.md) ·
-[Математическая постановка: переменные, ограничения и цели](docs/milp_model.md).
+```bash
+./scripts/run_tests.sh              # unit and integration tests
+./scripts/run_tests.sh -m baseline  # supplied case: proven 210-minute changeovers, zero splits
+./scripts/run_tests.sh --smoke      # Docker installation, reuse and offline execution
+```

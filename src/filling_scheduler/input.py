@@ -40,7 +40,8 @@ def load_document(path: Path, model):
     try:
         contents = path.read_bytes()
     except OSError as exc:
-        raise ApplicationError(ErrorCode.INPUT_READ_ERROR, "Cannot read input file") from exc
+        raise ApplicationError(ErrorCode.INPUT_READ_ERROR, "Cannot read input file",
+                               details=[{"path": str(path), "errno": exc.errno, "message": exc.strerror}]) from exc
     try:
         raw = materialize(json.loads(
             contents.decode("utf-8"),

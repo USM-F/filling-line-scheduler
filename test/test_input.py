@@ -117,6 +117,9 @@ def test_missing_input(tmp_path):
     with pytest.raises(ApplicationError) as caught:
         load_input(tmp_path / "absent.json")
     assert caught.value.code == ErrorCode.INPUT_READ_ERROR
+    assert caught.value.details[0]["path"] == str(tmp_path / "absent.json")
+    assert caught.value.details[0]["errno"] == 2
+    assert caught.value.details[0]["message"]
 
 
 def test_zero_demand_and_semantics_deferred(input_data):

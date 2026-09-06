@@ -15,15 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build runtime environment
         run: ./scripts/build.sh
-      - name: Run tests in Docker
-        run: ./scripts/run_tests.sh
-      - name: Inspect supplied input
-        run: >-
-          ./scripts/run.sh inspect
-          --input test/data/filling_only_20_product_assignment_input.json
-          --report output/inspection.json --debug
-      - name: Compare monolithic and sequential decomposed baselines (300s each)
-        run: ./scripts/run_tests.sh -m baseline --no-cov
+      - name: Run tests and supplied baseline in Docker
+        run: ./scripts/run_tests.sh -m 'baseline or not baseline'
       - name: Verify Docker lifecycle and offline execution
         run: ./scripts/run_tests.sh --smoke
       - name: Upload schedules generated from the supplied 20-product input

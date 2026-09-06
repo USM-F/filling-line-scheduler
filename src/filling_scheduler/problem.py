@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from fractions import Fraction
 from zoneinfo import ZoneInfo
 
 from filling_scheduler.enums import ErrorCode
@@ -30,32 +31,6 @@ def local_time(day: date, clock: str, zone: ZoneInfo) -> datetime:
     return candidates.pop()
 
 
-def changeover_lower_bound(source: SchedulingInput) -> dict:
-    """Structural lower bound in minutes, without solving or assuming calendar feasibility.
-
-    inspect accepts schema-valid inputs before semantic validation, so ambiguous
-    identifiers, missing transitions or uncovered demand yield an unavailable bound.
-    """
-    sku_ids = [d.sku_id for d in source.demand]
-    line_ids = [line.line_id for line in source.lines]
-    if len(set(sku_ids)) != len(sku_ids) or len(set(line_ids)) != len(line_ids):
-        return {"lower_bound_minutes": None, "reason": "Duplicate product or line identifiers"}
-    active = {d.sku_id for d in source.demand if d.demand_units > 0}
-    eligible = [{p.sku_id for p in line.eligible_products if p.sku_id in active} for line in source.lines]
-    if active - set().union(*eligible):
-        return {"lower_bound_minutes": None, "reason": "Active product has no eligible line"}
-    transitions = {(a, b) for products in eligible for a in products for b in products if a != b}
-    matrix = source.changeover_matrix_minutes
-    if any(a not in matrix or b not in matrix[a] for a, b in transitions):
-        return {"lower_bound_minutes": None, "reason": "Missing eligible transition duration"}
-    usable_lines = sum(bool(products) for products in eligible)
-    minimum_count = max(0, len(active) - usable_lines)
-    shortest = min((matrix[a][b] for a, b in transitions), default=0)
-    return {"lower_bound_minutes": minimum_count * shortest, "active_products": len(active),
-            "eligible_lines": usable_lines, "minimum_transition_count": minimum_count,
-            "minimum_transition_minutes": shortest}
-
-
 @dataclass(frozen=True)
 class WorkWindow:
     start: int
@@ -71,7 +46,7 @@ class Problem:
     precision: int
     demand: dict[str, int]
     lines: tuple[str, ...]
-    units_per_tick: dict[tuple[str, str], int]
+    units_per_tick: dict[tuple[str, str], int | Fraction]
     changeover: dict[tuple[str, str], int]
     windows: tuple[WorkWindow, ...]
 
@@ -120,12 +95,11 @@ def prepare_problem(source: SchedulingInput) -> Problem:
         for product in line.eligible_products:
             if product.sku_id not in sku_ids:
                 invalid("Eligibility references an unknown product", f"lines.{line.line_id}")
-            units = product.capacity_units_per_hour * horizon.precision_minutes / 60
-            if units != units.to_integral_value() or units < 1:
-                raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Capacity must give integer units per planning tick",
-                                       details=[{"path": f"lines.{line.line_id}.{product.sku_id}.capacityUnitsPerHour"}])
+            # Decimal -> Fraction preserves the input exactly, including rates
+            # below one unit per tick. Do not round the physical line speed.
+            units = Fraction(product.capacity_units_per_hour) * horizon.precision_minutes / 60
             if product.sku_id in demand:
-                rates[product.sku_id, line.line_id] = int(units)
+                rates[product.sku_id, line.line_id] = units.numerator if units.denominator == 1 else units
     for sku in demand:
         if not any(pair[0] == sku for pair in rates):
             invalid("Active product has no eligible line", f"demand.{sku}")

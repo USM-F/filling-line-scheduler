@@ -2,8 +2,8 @@ import pytest
 
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.models import SchedulingInput
-from filling_scheduler.problem import prepare_problem, changeover_lower_bound
-from test_milp import example, calendar_example
+from filling_scheduler.problem import prepare_problem
+from data_generators import example, calendar_example
 
 
 def prepare(data):
@@ -42,7 +42,6 @@ def test_semantic_errors(change):
 
 
 @pytest.mark.parametrize("change", [
-    lambda d: d["lines"][0]["eligibleProducts"][0].update(capacityUnitsPerHour=61),
     lambda d: d["planningHorizon"].update(precisionMinutes=3),
 ])
 def test_unsupported_grid(change):
@@ -66,35 +65,3 @@ def test_ambiguous_local_boundary():
     data["calendar"].update(workingDays=["SUNDAY"], shifts=[{"code": "DST", "startTime": "02:30", "endTime": "04:00", "breaks": []}])
     with pytest.raises(ApplicationError, match="Ambiguous"):
         prepare(data)
-
-
-def test_changeover_lower_bound_actual(input_data):
-    bound = changeover_lower_bound(SchedulingInput.model_validate(input_data))
-    assert bound == dict(lower_bound_minutes=210, active_products=20, eligible_lines=13,
-                         minimum_transition_count=7, minimum_transition_minutes=30)
-
-
-@pytest.mark.parametrize("demand,lines,expected", [({"A": 0}, 2, 0), ({"A": 10}, 2, 0),
-    ({"A": 1, "B": 1, "C": 0}, 1, 2), ({"A": 1, "B": 1, "C": 1}, 1, 4)])
-def test_changeover_lower_bound_counts(demand, lines, expected):
-    assert changeover_lower_bound(SchedulingInput.model_validate(example(demand, lines=lines)))["lower_bound_minutes"] == expected
-
-
-def test_bound_ignores_ineligible_and_diagonal_transitions():
-    data = example({"A": 1, "B": 1, "C": 0}, lines=2)
-    data["lines"][1]["eligibleProducts"] = []
-    data["changeoverMatrixMinutes"]["A"]["B"] = 5
-    data["changeoverMatrixMinutes"]["B"]["A"] = 9
-    assert changeover_lower_bound(SchedulingInput.model_validate(data))["lower_bound_minutes"] == 5
-    data["changeoverMatrixMinutes"]["B"]["A"] = 0
-    assert changeover_lower_bound(SchedulingInput.model_validate(data))["lower_bound_minutes"] == 0
-
-
-@pytest.mark.parametrize("mutation", [lambda d: d["demand"].append(d["demand"][0]),
-    lambda d: d["lines"][0].update(eligibleProducts=[]), lambda d: d.update(changeoverMatrixMinutes={})])
-def test_bound_unavailable_for_ambiguous_or_missing_data(mutation):
-    data = example({"A": 1, "B": 1}, lines=1)
-    mutation(data)
-    bound = changeover_lower_bound(SchedulingInput.model_validate(data))
-    assert bound["lower_bound_minutes"] is None
-    assert bound["reason"]

@@ -36,19 +36,18 @@ printf 'dev\nstale-test-fingerprint\n' >"${VENV_DIR}/.fls-stamp"
 [[ ! -e "${VENV_DIR}/dev-sentinel" ]]
 touch "${VENV_DIR}/force-sentinel"
 
-log INFO 'Smoke: report conflict leaves the previous report intact'
-set +e
-"${script_dir}/run.sh" inspect --input "${smoke_dir}/input with spaces.json" \
-    --report "${smoke_dir}/report with spaces.json" >"${smoke_dir}/conflict-stdout"
-status=$?
-set -e
-[[ ${status} == 8 && ! -s "${smoke_dir}/conflict-stdout" ]]
-cmp "${smoke_dir}/stdout.json" "${smoke_dir}/report with spaces.json"
-
-log INFO 'Smoke: force recreates only the owned venv and replaces the report'
+log INFO 'Smoke: repeat run replaces the report and reuses the venv'
 printf 'old report\n' >"${smoke_dir}/report with spaces.json"
 "${script_dir}/run.sh" inspect --input "${smoke_dir}/input with spaces.json" \
-    --report "${smoke_dir}/report with spaces.json" --force >"${smoke_dir}/force-stdout.json"
+    --report "${smoke_dir}/report with spaces.json" >"${smoke_dir}/repeat-stdout.json"
+[[ -e "${VENV_DIR}/force-sentinel" ]]
+cmp "${smoke_dir}/repeat-stdout.json" "${smoke_dir}/report with spaces.json"
+
+log INFO 'Smoke: explicit environment rebuild preserves input and refreshes reports'
+"${script_dir}/ensure_venv.sh" --force
+printf 'old report\n' >"${smoke_dir}/report with spaces.json"
+"${script_dir}/run.sh" inspect --input "${smoke_dir}/input with spaces.json" \
+    --report "${smoke_dir}/report with spaces.json" >"${smoke_dir}/force-stdout.json"
 [[ ! -e "${VENV_DIR}/force-sentinel" ]]
 cmp "${smoke_dir}/force-stdout.json" "${smoke_dir}/report with spaces.json"
 cmp "${source_input}" "${smoke_dir}/input with spaces.json"

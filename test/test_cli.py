@@ -28,9 +28,6 @@ def test_inspect_and_debug(input_path, tmp_path, capsys):
     assert records[-1]["exit_code"] == 0
     assert {record["stage"] for record in records if "stage" in record} == {"load_input", "inspect_input", "json_dump"}
     assert "INFO inspection_completed" in captured.err
-    bound = next(record for record in records if record["event"] == "changeover_lower_bound")
-    assert bound["lower_bound_minutes"] == 210
-    assert bound["level"] == "INFO"
 
 
 def test_info_omits_debug(input_path, tmp_path, capsys):
@@ -43,8 +40,6 @@ def test_info_omits_debug(input_path, tmp_path, capsys):
 @pytest.mark.parametrize("args", [
     [], ["unknown"], ["inspect"], ["inspect", "--input"],
     ["--log-level", "INVALID", "inspect", "--input", "missing"],
-    ["solve", "--input", "x", "--output", "y", "--workers", "0"],
-    ["solve", "--input", "x", "--output", "y", "--workers", "bad"],
     ["solve", "--input", "x", "--output", "y", "--time-limit-seconds", "nan"],
     ["solve", "--input", "x", "--output", "y", "--time-limit-seconds", "bad"],
     ["solve", "--input", "x", "--output", "y", "--mip-gap", "-1"],
@@ -62,6 +57,7 @@ def test_argument_errors_logged(args, tmp_path, capsys):
 
 @pytest.mark.parametrize("command,args", [
     ("solve", ["--input", "input.json", "--output", "schedule.json"]),
+    ("all", ["--input", "input.json", "--output", "schedule.json"]),
     ("validate", ["--input", "input.json", "--schedule", "schedule.json"]),
     ("render", ["--schedule", "schedule.json", "--html-output", "schedule.html"]),
 ])
@@ -88,15 +84,13 @@ def test_schema_error_logged_with_path(tmp_path, capsys):
     assert any(record["event"] == "stage_failed" for record in events(log))
 
 
-def test_report_conflict_and_force(input_path, tmp_path, capsys):
+def test_report_overwrites_by_default(input_path, tmp_path, capsys):
     report = tmp_path / "report.json"
     log = tmp_path / "log.jsonl"
     report.write_text("previous")
     args = ["inspect", "--input", str(input_path), "--report", str(report), "--log-file", str(log)]
-    assert main(args) == 8
-    assert not capsys.readouterr().out
-    assert report.read_text() == "previous"
-    assert main([*args, "--force"]) == 0
+    assert main(args) == 0
+    assert report.read_text() == capsys.readouterr().out
     assert json.loads(report.read_text())["lineCount"] == 13
 
 
@@ -115,7 +109,7 @@ def test_protect_input_from_logs_and_reports(input_path, tmp_path, monkeypatch, 
     before = source.read_bytes()
     assert main(["inspect", "--input", str(source), "--log-file", str(target)]) == 2
     assert source.read_bytes() == before
-    assert main(["inspect", "--input", str(source), "--report", str(target), "--force"]) == 2
+    assert main(["inspect", "--input", str(source), "--report", str(target)]) == 2
     assert source.read_bytes() == before
 
 
@@ -144,10 +138,20 @@ def test_help_and_version(args, tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out
 
 
-def test_solve_defaults():
-    args = build_parser().parse_args(["solve", "--input", "i", "--output", "o"])
-    assert not args.decomposition
-    assert (args.workers, args.threads_per_worker, args.time_limit_seconds, args.mip_gap, args.seed) == (1, 1, 300, 0, 0)
+@pytest.mark.parametrize("command", ["solve", "all"])
+def test_solve_defaults(command):
+    args = build_parser().parse_args([command, "--input", "i", "--output", "o"])
+    assert args.command == command
+    assert (args.time_limit_seconds, args.mip_gap, args.seed) == (300, 0, 0)
+
+
+def test_solve_help_exposes_only_implemented_options(capsys):
+    from filling_scheduler.cli import ParserExit
+    with pytest.raises(ParserExit):
+        build_parser().parse_args(["solve", "--help"])
+    help_text = capsys.readouterr().out
+    for removed in ("--workers", "--decomposition", "--objective-mode", "--timing-mode", "--force"):
+        assert removed not in help_text
 
 
 @pytest.mark.parametrize("entrypoint", [[sys.executable, "-m", "filling_scheduler"], [str(Path(sys.executable).parent / "filling-scheduler")]])

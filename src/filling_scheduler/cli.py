@@ -8,11 +8,11 @@ from pathlib import Path
 from time import perf_counter_ns
 from uuid import uuid4
 
-from filling_scheduler import __version__, config
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveMode, TimingMode
+from filling_scheduler import __version__
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.input import load_input
-from filling_scheduler.report import encode_report, write_report
+from filling_scheduler.report import encode_report, publish_artifacts
 from filling_scheduler.logging_config import close_logging, configure_logging
 from filling_scheduler.pipeline import inspect_input, paths_alias, solve_command, validate_command, render_command
 from filling_scheduler.stage_timing import timed_stage
@@ -31,16 +31,6 @@ class ArgumentParser(argparse.ArgumentParser):
         if message:
             self._print_message(message, sys.stderr)
         raise ParserExit(status)
-
-
-def positive_int(value: str) -> int:
-    try:
-        result = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("expected a positive integer") from exc
-    if result <= 0:
-        raise argparse.ArgumentTypeError("expected a positive integer")
-    return result
 
 
 def finite_float(value: str, *, positive: bool = False) -> float:
@@ -67,28 +57,16 @@ def build_parser() -> ArgumentParser:
     inspect = commands.add_parser("inspect", help="Inspect the input schema and counts", allow_abbrev=False)
     inspect.add_argument("--input", required=True, type=Path)
     inspect.add_argument("--report", type=Path)
-    inspect.add_argument("--force", action="store_true")
-    solve = commands.add_parser("solve", help="Schedule production using MILP", allow_abbrev=False)
+    solve = commands.add_parser("solve", aliases=["all"],
+                                help="Inspect input, solve, validate the schedule, and save JSON/HTML/metrics",
+                                description="Full workflow: inspect input, solve, independently validate the schedule, and save JSON/HTML/metrics.",
+                                allow_abbrev=False)
     solve.add_argument("--input", required=True, type=Path)
     solve.add_argument("--output", required=True, type=Path)
-    solve.add_argument("--decomposition", action="store_true", help="Solve independent components sequentially (lexicographic only)")
-    solve.add_argument("--workers", type=positive_int, default=config.DEFAULT_WORKERS)
-    solve.add_argument("--threads-per-worker", type=positive_int, default=config.DEFAULT_THREADS_PER_WORKER)
-    solve.add_argument("--time-limit-seconds", type=lambda value: finite_float(value, positive=True), default=config.DEFAULT_TIME_LIMIT_SECONDS)
-    solve.add_argument("--mip-gap", type=finite_float, default=config.DEFAULT_MIP_GAP)
-    solve.add_argument("--seed", type=int, default=config.DEFAULT_SEED)
-    solve.add_argument("--objective-mode", choices=list(ObjectiveMode), default=ObjectiveMode.LEXICOGRAPHIC,
-                       help="Objective policy (default: lexicographic)")
-    solve.add_argument("--timing-mode", choices=list(TimingMode),
-                       help="Lexicographic timing: heuristic (default), exact four objectives, or none; weighted uses exact")
-    solve.add_argument("--objective-weights", nargs=4, type=finite_float, metavar=("F1", "F2", "F3", "F4"),
-                       help="Required in weighted mode: changeover ticks, extra assignments, makespan ticks, start sum ticks")
-    solve.add_argument("--working-changeover-weight", type=finite_float, default=0.0,
-                       help="Optional weighted-mode penalty per working tick occupied by changeovers (default: 0)")
+    solve.add_argument("--time-limit-seconds", type=lambda value: finite_float(value, positive=True), default=300.0)
+    solve.add_argument("--mip-gap", type=finite_float, default=0.0)
+    solve.add_argument("--seed", type=int, default=0)
     solve.add_argument("--html-output", type=Path)
-    solve.add_argument("--work-dir", type=Path)
-    solve.add_argument("--keep-work-dir", action="store_true")
-    solve.add_argument("--force", action="store_true")
     validate = commands.add_parser("validate", help="Independently validate a schedule", allow_abbrev=False)
     validate.add_argument("--input", required=True, type=Path)
     validate.add_argument("--schedule", required=True, type=Path)
@@ -96,7 +74,6 @@ def build_parser() -> ArgumentParser:
     render.add_argument("--schedule", required=True, type=Path)
     render.add_argument("--input", type=Path, help="Source problem for makespan and changeovers during calendar breaks")
     render.add_argument("--html-output", required=True, type=Path)
-    render.add_argument("--force", action="store_true")
     for command in (inspect, solve, validate, render):
         common_arguments(command)
     return parser
@@ -127,9 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     except ParserExit as exc:
         parser_status = exc.status
 
-    level = raw_option(argv, "--log-level") or config.DEFAULT_LOG_LEVEL
+    level = raw_option(argv, "--log-level") or "INFO"
     if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
-        level = config.DEFAULT_LOG_LEVEL
+        level = "INFO"
     if "--debug" in argv:
         level = "DEBUG"
     log_file = Path(raw_option(argv, "--log-file") or f".logs/{run_id}.jsonl")
@@ -172,12 +149,12 @@ def main(argv: list[str] | None = None) -> int:
                 with timed_stage(StageName.JSON_DUMP):
                     contents = encode_report(report)
                     if args.report:
-                        write_report(args.report, contents, force=args.force)
+                        publish_artifacts([(args.report, contents)])
                         logger.info(EventName.REPORT_WRITTEN)
                 logger.info(EventName.INSPECTION_COMPLETED, extra={"fields": {"summary": report}})
                 sys.stdout.write(contents)
             elif args is not None:
-                if args.command == "solve":
+                if args.command in ("solve", "all"):
                     report = solve_command(args, run_id, log_file)
                 elif args.command == "validate":
                     report = validate_command(args)
