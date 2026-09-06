@@ -235,7 +235,9 @@ class SchedulingMilp:
         def checked(status) -> None:
             if status == highspy.HighsStatus.kError:
                 raise ApplicationError(ErrorCode.SOLVER_ERROR, "HiGHS rejected model or option", ExitCode.INTERNAL_ERROR)
-        for key, value in {"threads": 1, "random_seed": seed, "mip_rel_gap": mip_gap,
+        # Presolve falsely proves 240 instead of 210 on doubled demand;
+        # see test_supplied_baseline[doubled].
+        for key, value in {"presolve": "off", "threads": 1, "random_seed": seed, "mip_rel_gap": mip_gap,
                            "mip_abs_gap": 0.0, "log_to_console": False, "output_flag": log_path is not None}.items():
             checked(h.setOptionValue(key, value))
         if offset:
