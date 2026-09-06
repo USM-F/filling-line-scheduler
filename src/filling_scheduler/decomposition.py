@@ -112,7 +112,7 @@ def objective_progress(objective, models, incumbents, records) -> dict:
             "gap": max(0, value-bound) / max(1, abs(value)) if value is not None and bound is not None else None}
 
 
-def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, threads=1,
+def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0,
                      log_path: Path | None = None, optimize_timing=True) -> SolveResult:
     with timed_stage(StageName.DECOMPOSE):
         components = build_components(problem)
@@ -151,7 +151,7 @@ def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, thr
                     with timed_stage(StageName.MILP_SOLVE):
                         result = models[index].solve_pass(objective,
                             time_limit=remaining / (len(pending) - position), incumbent=best[index],
-                            mip_gap=mip_gap, seed=seed, threads=threads, log_path=native_log,
+                            mip_gap=mip_gap, seed=seed, log_path=native_log,
                             context={"component_id": component.component_id, "attempt": attempt})
                     best[index] = result.values
                     record = dict(result.record, highs_log=str(native_log) if native_log else None)

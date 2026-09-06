@@ -221,7 +221,7 @@ class SchedulingMilp:
         self.row(self.objectives[objective], -math.inf if upper_only else raw, raw)
 
     def solve_pass(self, objective, *, time_limit: float, incumbent=None,
-                   mip_gap=0, seed=0, threads=1, log_path=None,
+                   mip_gap=0, seed=0, log_path=None,
                    context=None) -> PassResult:
         """One bounded native solve. Incumbents survive a limit without a new solution."""
         import highspy
@@ -241,13 +241,11 @@ class SchedulingMilp:
             return PassResult(values, record)
         if time_limit <= 0:
             return finish(incumbent)
-        # HiGHS keeps a process-global thread pool. Sequential CLI calls may request a different size.
-        highspy.Highs.resetGlobalScheduler(True)
         h = highspy.Highs()
         def checked(status) -> None:
             if status == highspy.HighsStatus.kError:
                 raise ApplicationError(ErrorCode.SOLVER_ERROR, "HiGHS rejected model or option", ExitCode.INTERNAL_ERROR)
-        for key, value in {"threads": threads, "random_seed": seed, "mip_rel_gap": mip_gap,
+        for key, value in {"threads": 1, "random_seed": seed, "mip_rel_gap": mip_gap,
                            "mip_abs_gap": 0.0, "log_to_console": False, "output_flag": log_path is not None}.items():
             checked(h.setOptionValue(key, value))
         if offset:
@@ -313,7 +311,7 @@ class SchedulingMilp:
         return finish(values)
 
     def solve(self, *, time_limit: float = 300, mip_gap: float = 0, seed: int = 0,
-              threads: int = 1, log_path: Path | None = None, optimize_timing=True) -> SolveResult:
+              log_path: Path | None = None, optimize_timing=True) -> SolveResult:
         started = perf_counter()
         model = self.model_size()
         if not self.problem.demand:
@@ -327,7 +325,7 @@ class SchedulingMilp:
                 if remaining <= 0:
                     break
                 result = self.solve_pass(objective, time_limit=remaining, incumbent=best,
-                                         mip_gap=mip_gap, seed=seed, threads=threads, log_path=log_path)
+                                         mip_gap=mip_gap, seed=seed, log_path=log_path)
                 passes.append(result.record)
                 best = result.values
                 if not result.record["proven_optimal"]:

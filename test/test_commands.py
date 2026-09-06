@@ -193,12 +193,6 @@ def test_all_failure_keeps_previous_bundle(command_case, monkeypatch, capsys, fa
         assert next(r for r in records if r["event"] == "schedule_validated")["valid"] is False
 
 
-def test_thread_count_can_change_between_commands(command_case):
-    assert main(command_case) == 0
-    assert main([*command_case, "--threads", "2"]) == 0
-    assert main([*command_case, "--threads", "1"]) == 0
-
-
 def test_decomposition_cli(command_case, capsys):
     from data_generators import makespan_tradeoff
     Path(command_case[2]).write_text(json.dumps(makespan_tradeoff()))

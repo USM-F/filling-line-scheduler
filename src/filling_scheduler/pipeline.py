@@ -90,14 +90,14 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     if args.decomposition:
         from filling_scheduler.decomposition import solve_decomposed
         result = solve_decomposed(problem, time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
-                                  seed=args.seed, threads=args.threads, log_path=native_log,
+                                  seed=args.seed, log_path=native_log,
                                   optimize_timing=timing_mode == TimingMode.EXACT)
     else:
         with timed_stage(StageName.MILP_BUILD):
             model = SchedulingMilp(problem)
         with timed_stage(StageName.MILP_SOLVE):
             result = model.solve(time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
-                                 seed=args.seed, threads=args.threads, log_path=native_log,
+                                 seed=args.seed, log_path=native_log,
                                  optimize_timing=timing_mode == TimingMode.EXACT)
     timing = {"mode": timing_mode, "before": dict(result.objectives), "elapsed_ms": 0}
     if timing_mode == TimingMode.HEURISTIC:
@@ -118,7 +118,7 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
                "objectives": result.objectives, "passes": result.passes, "model": result.model,
                "solver_elapsed_ms": result.elapsed_ms, "pipeline_elapsed_ms": (perf_counter()-started)*1000,
                "settings": {"time_limit_seconds": args.time_limit_seconds, "mip_gap": args.mip_gap,
-                            "threads": args.threads, "seed": args.seed},
+                            "seed": args.seed},
                "environment": {"python": platform.python_version(), "highspy": version("highspy"),
                                "architecture": platform.machine(), "platform": platform.platform()},
                "highs_log": str(native_log) if native_log.exists() else None, "summary": report["summary"]}

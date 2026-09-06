@@ -40,8 +40,6 @@ def test_info_omits_debug(input_path, tmp_path, capsys):
 @pytest.mark.parametrize("args", [
     [], ["unknown"], ["inspect"], ["inspect", "--input"],
     ["--log-level", "INVALID", "inspect", "--input", "missing"],
-    ["solve", "--input", "x", "--output", "y", "--threads", "0"],
-    ["solve", "--input", "x", "--output", "y", "--threads", "bad"],
     ["solve", "--input", "x", "--output", "y", "--time-limit-seconds", "nan"],
     ["solve", "--input", "x", "--output", "y", "--time-limit-seconds", "bad"],
     ["solve", "--input", "x", "--output", "y", "--mip-gap", "-1"],
@@ -144,7 +142,7 @@ def test_help_and_version(args, tmp_path, monkeypatch, capsys):
 def test_solve_defaults(command):
     args = build_parser().parse_args([command, "--input", "i", "--output", "o"])
     assert args.command == command
-    assert (args.threads, args.time_limit_seconds, args.mip_gap, args.seed) == (1, 300, 0, 0)
+    assert (args.time_limit_seconds, args.mip_gap, args.seed) == (300, 0, 0)
 
 
 def test_solve_help_exposes_only_implemented_options(capsys):
@@ -152,7 +150,6 @@ def test_solve_help_exposes_only_implemented_options(capsys):
     with pytest.raises(ParserExit):
         build_parser().parse_args(["solve", "--help"])
     help_text = capsys.readouterr().out
-    assert "--threads" in help_text
     for removed in ("--workers", "--objective-mode", "--force"):
         assert removed not in help_text
 
