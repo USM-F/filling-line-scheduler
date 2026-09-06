@@ -13,7 +13,7 @@ from filling_scheduler.problem import prepare_problem
 from filling_scheduler.schedule import materialize_schedule, Schedule
 from filling_scheduler.timing import left_shift
 from filling_scheduler.validation import validate_schedule
-from test_milp import example
+from data_generators import example
 
 
 def data_for(rate, quantity, windows):
@@ -31,6 +31,7 @@ def data_for(rate, quantity, windows):
 def checked(data):
     problem = prepare_problem(SchedulingInput.model_validate(data))
     result = SchedulingMilp(problem).solve(time_limit=20)
+    result.runs = left_shift(problem, result.runs)
     schedule = materialize_schedule(problem, result, "exact-rate")
     report = validate_schedule(problem, schedule)
     assert report["valid"], report
@@ -47,7 +48,7 @@ def test_exact_rate_and_minimum_duration(rate, quantity, ticks):
     problem, result, schedule = checked(data_for(rate, quantity, [(0, ticks)]))
     assert problem.units_per_tick["A", "L1"] == Fraction(rate) / 60
     assert result.runs[0].duration == ticks
-    assert result.objectives["makespan_ticks"] == ticks
+    assert result.runs[0].end == ticks
     assert schedule.summary.produced_by_product == {"A": quantity}
     production = schedule.lines[0].slots
     assert len(production) == 1 and production[0].quantity == quantity
@@ -103,23 +104,6 @@ def test_rate_uses_actual_planning_precision():
     assert result.runs[0].duration == 12
 
 
-@pytest.mark.parametrize("mode", ["decomposed", "weighted", "heuristic"])
-def test_fractional_speed_in_all_solver_modes(mode):
-    from filling_scheduler.decomposition import solve_decomposed
-    problem = prepare_problem(SchedulingInput.model_validate(data_for(20000, 667, [(0, 1), (2, 4)])))
-    if mode == "decomposed":
-        result = solve_decomposed(problem, time_limit=20)
-    elif mode == "weighted":
-        result = SchedulingMilp(problem).solve(time_limit=20, objective_mode="weighted", objective_weights=(1, 1, .1, .01))
-    else:
-        result = SchedulingMilp(problem).solve(time_limit=20, optimize_timing=False)
-        result.runs = left_shift(problem, result.runs)
-    schedule = materialize_schedule(problem, result, mode)
-    assert validate_schedule(problem, schedule)["valid"]
-    assert [s.quantity for s in schedule.lines[0].slots] == [333, 334]
-    assert result.runs[0].end == 4
-
-
 def test_decimal_rate_through_public_all_command(tmp_path, monkeypatch, capsys):
     import json
     from filling_scheduler.cli import main
@@ -132,7 +116,7 @@ def test_decimal_rate_through_public_all_command(tmp_path, monkeypatch, capsys):
     assert main(["all", "--input", str(source), "--output", str(output)]) == 0
     result = json.loads(capsys.readouterr().out)
     assert result["summary"]["producedByProduct"] == {"A": 40001}
-    assert result["objectives"]["makespan_ticks"] == 120
+    assert result["makespan_minutes"] == 120
     assert output.with_suffix(".html").exists()
     assert main(["validate", "--input", str(source), "--schedule", str(output)]) == 0
     assert json.loads(capsys.readouterr().out)["valid"]
@@ -200,4 +184,4 @@ def test_fractional_milp_matches_exhaustive_assignment_and_route_oracle(seed):
         assert exc.value.code == "INFEASIBLE"
     else:
         problem, result, schedule = checked(data)
-        assert tuple(run_objectives(problem, result.runs).values()) == best
+        assert tuple(run_objectives(problem, result.runs).values()) == best[:2]

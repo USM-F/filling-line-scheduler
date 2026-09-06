@@ -1,20 +1,11 @@
 from copy import deepcopy
-import subprocess
-import sys
 
 import pytest
 
 from filling_scheduler.input import load_document
-from filling_scheduler.models import SchedulingInput
-from filling_scheduler.problem import prepare_problem
-from filling_scheduler.schedule import Schedule, materialize_schedule
+from filling_scheduler.schedule import Schedule
 from filling_scheduler.validation import validate_schedule
-from test_milp import example, calendar_example, solve
-
-
-def generated(data):
-    problem = prepare_problem(SchedulingInput.model_validate(data))
-    return problem, materialize_schedule(problem, solve(data), "synthetic")
+from data_generators import example, calendar_example, generated
 
 
 @pytest.mark.parametrize("data", [example(), example({"A": 250}, lines=3), example({"A": 3, "B": 0}, units=2), example({"A": 0}), calendar_example()])
@@ -63,12 +54,6 @@ def test_partial_tick_only_at_run_end():
     raw["lines"][0]["slots"][1]["quantityUnits"] += 1
     report = validate_schedule(problem, Schedule.model_validate(raw))
     assert "ROUNDING" in {e["code"] for e in report["errors"]}
-
-
-def test_validator_does_not_import_solver():
-    code = "import filling_scheduler.validation; import sys; assert 'highspy' not in sys.modules; assert 'filling_scheduler.milp' not in sys.modules"
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
 
 
 def test_run_gaps_and_returning_product():

@@ -22,7 +22,6 @@ def left_shift(problem: Problem, runs: list["Run"]) -> list["Run"]:
         previous = None
         for run in sorted((r for r in runs if r.line == line), key=lambda r: (r.start, r.sku)):
             ready = previous.end if previous is not None else 0
-            setup_start = ready if previous is not None else None
             if previous is not None:
                 ready += problem.changeover[previous.sku, run.sku]
             units = problem.units_per_tick[run.sku, line]
@@ -51,6 +50,6 @@ def left_shift(problem: Problem, runs: list["Run"]) -> list["Run"]:
                     break
             if remaining or start is None or start > run.start or end > run.end:
                 raise ValueError("Fixed runs cannot be shifted left within their original bounds")
-            previous = replace(run, start=start, end=end, duration=duration, setup_start=setup_start)
+            previous = replace(run, start=start, end=end, duration=duration)
             shifted.append(previous)
     return shifted

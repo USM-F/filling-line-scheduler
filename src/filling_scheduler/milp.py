@@ -1,12 +1,12 @@
 """One integrated split/route/event-calendar MILP; native HiGHS is loaded lazily."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import logging
 import math
 from pathlib import Path
 from time import perf_counter
 
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, ObjectiveMode, SolverStatus, AdditionalObjectiveName
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, SolverStatus
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.problem import Problem
 
@@ -22,7 +22,6 @@ class Run:
     start: int
     end: int
     predecessor: str | None
-    setup_start: int | None = None
 
 
 @dataclass
@@ -33,8 +32,6 @@ class SolveResult:
     passes: list[dict]
     model: dict[str, int]
     elapsed_ms: float
-    weighted_value: float | None = None
-    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -43,37 +40,13 @@ class PassResult:
     record: dict
 
 
-def validate_objective_options(mode, weights, working_changeover_weight=0):
-    try:
-        mode = ObjectiveMode(mode)
-    except ValueError as exc:
-        raise ApplicationError(ErrorCode.CLI_ERROR, "Unknown objective mode") from exc
-    if not math.isfinite(working_changeover_weight) or working_changeover_weight < 0:
-        raise ApplicationError(ErrorCode.CLI_ERROR, "Working changeover weight must be finite and nonnegative")
-    if mode == ObjectiveMode.LEXICOGRAPHIC:
-        if working_changeover_weight:
-            raise ApplicationError(ErrorCode.CLI_ERROR, "Working changeover penalty requires weighted mode")
-        if weights is not None:
-            raise ApplicationError(ErrorCode.CLI_ERROR, "Objective weights require weighted mode")
-        return mode, None
-    if weights is None or len(weights) != 4:
-        raise ApplicationError(ErrorCode.CLI_ERROR, "Weighted mode requires four explicit objective weights")
-    if any(not math.isfinite(w) or w < 0 for w in weights) or not any(weights):
-        raise ApplicationError(ErrorCode.CLI_ERROR, "Weights must be finite, nonnegative, and not all zero")
-    return mode, tuple(weights)
-
-
 def proven_integer_optimum(value: float, bound: float) -> bool:
     return math.isfinite(bound) and math.ceil(bound - 1e-6) >= round(value)
 
 
 class SchedulingMilp:
-    def __init__(self, problem: Problem, *, working_changeover_weight: float = 0) -> None:
+    def __init__(self, problem: Problem) -> None:
         self.problem = problem
-        if not math.isfinite(working_changeover_weight) or working_changeover_weight < 0:
-            raise ApplicationError(ErrorCode.CLI_ERROR, "Working changeover weight must be finite and nonnegative")
-        self.working_changeover_weight = working_changeover_weight
-        self.working_changeover_objective: dict[int, float] = {}
         self.names: list[str] = []
         self.lower: list[float] = []
         self.upper: list[float] = []
@@ -85,8 +58,6 @@ class SchedulingMilp:
         self.arcs: dict[tuple[str, str, str], int] = {}
         self.objectives: dict[ObjectiveName, dict[int, float]] = {name: {} for name in ObjectiveName}
         self.build()
-        if working_changeover_weight:
-            self.build_setup_times()
 
     def variable(self, name: str, upper: float, *, integer: bool = True) -> int:
         index = len(self.names)
@@ -104,8 +75,6 @@ class SchedulingMilp:
     def build(self) -> None:
         problem = self.problem
         T = problem.horizon
-        makespan = self.variable("makespan", T)
-        self.objectives[ObjectiveName.MAKESPAN][makespan] = 1
         for (sku, line), units in problem.units_per_tick.items():
             demand = problem.demand[sku]
             n, d = units.numerator, units.denominator
@@ -127,9 +96,7 @@ class SchedulingMilp:
             self.row({q: d, p: -n, y: n - 1 + loss}, lower=0)
             self.row({p: 1, y: -pmax}, upper=0)
             self.row({c: 1, s: -1, p: -1}, lower=0)
-            self.row({makespan: 1, c: -1}, lower=0)
             self.objectives[ObjectiveName.SPLIT][y] = 1
-            self.objectives[ObjectiveName.STARTS][s] = 1
             starts, ends = {y: -1}, {y: -1}
             wall_start, wall_end, productive = {s: 1}, {c: 1}, {p: -1}
             window_variables = []
@@ -214,56 +181,6 @@ class SchedulingMilp:
             previous_active, previous_end = active, ze
         self.row(total, 0, 0)
 
-    def build_setup_times(self) -> None:
-        """Place each incoming setup in calendar time and measure its occupied work ticks.
-
-        Partition the whole horizon into work and nonwork segments. On each
-        segment cumulative work time is affine: F(t) = work_before + slope * offset.
-        Select segments for both setup endpoints, then occupied work is F(end)-F(start).
-        """
-        problem = self.problem
-        segments = []
-        cursor = work_before = 0
-        for window in problem.windows:
-            if cursor < window.start:
-                segments.append((cursor, window.start, work_before, 0))
-            segments.append((window.start, window.end, work_before, 1))
-            work_before += window.end - window.start
-            cursor = window.end
-        if cursor < problem.horizon:
-            segments.append((cursor, problem.horizon, work_before, 0))
-        for (sku, line), v in self.variables.items():
-            start = self.variable(f"setup_start[{sku},{line}]", problem.horizon)
-            end = self.variable(f"setup_end[{sku},{line}]", problem.horizon)
-            occupied = self.variable(f"setup_working[{sku},{line}]", problem.horizon)
-            v.update(setup_start=start, setup_end=end, setup_working=occupied)
-            self.working_changeover_objective[occupied] = 1
-            # assign-first is one exactly when this run has a predecessor.
-            for endpoint in (start, end):
-                self.row({endpoint: 1, v["assign"]: -problem.horizon, v["first"]: problem.horizon}, upper=0)
-            self.row({end: 1, v["start"]: -1}, upper=0)
-            duration = {end: 1, start: -1}
-            for (previous, following, candidate), arc in self.arcs.items():
-                if following == sku and candidate == line:
-                    duration[arc] = -problem.changeover[previous, sku]
-                    self.row({start: 1, self.variables[previous, line]["end"]: -1,
-                              arc: -problem.horizon}, lower=-problem.horizon)
-            self.row(duration, 0, 0)
-            work = {occupied: -1}
-            for name, endpoint, sign in (("start", start, -1), ("end", end, 1)):
-                selection = {v["assign"]: -1, v["first"]: 1}
-                clock = {endpoint: -1}
-                for k, (a, b, cumulative, slope) in enumerate(segments):
-                    z = self.variable(f"setup_{name}_segment[{sku},{line},{k}]", 1)
-                    offset = self.variable(f"setup_{name}_offset[{sku},{line},{k}]", b-a, integer=False)
-                    self.row({offset: 1, z: -(b-a)}, upper=0)
-                    selection[z] = 1
-                    clock.update({z: a, offset: 1})
-                    work.update({z: sign * cumulative, offset: sign * slope})
-                self.row(selection, 0, 0)
-                self.row(clock, 0, 0)
-            self.row(work, 0, 0)
-
     def extract(self, values: list[float]) -> list[Run]:
         def integer(index: int) -> int:
             value = values[index]
@@ -277,8 +194,7 @@ class SchedulingMilp:
                 if len(predecessors) > 1:
                     raise ApplicationError(ErrorCode.SOLVER_ERROR, "Invalid predecessor result", ExitCode.INTERNAL_ERROR)
                 runs.append(Run(sku, line, *(integer(v[key]) for key in ("quantity", "duration", "start", "end")),
-                                predecessors[0] if predecessors else None,
-                                integer(v["setup_start"]) if predecessors and "setup_start" in v else None))
+                                predecessors[0] if predecessors else None))
         return runs
 
     def model_size(self) -> dict:
@@ -289,32 +205,24 @@ class SchedulingMilp:
                 "work_windows": len(self.problem.windows)}
 
     def objective_values(self, values: list[float]) -> dict:
-        runs = self.extract(values)
-        objectives = run_objectives(self.problem, runs)
-        if self.working_changeover_weight:
-            objectives[AdditionalObjectiveName.WORKING_CHANGEOVER] = sum(
-                round(values[index]) for index in self.working_changeover_objective)
-        return objectives
+        return run_objectives(self.problem, self.extract(values))
 
-    def fix_objective(self, objective: ObjectiveName, value: int, *, upper_only=False) -> None:
+    def fix_objective(self, objective: ObjectiveName, value: int) -> None:
         # The split expression counts assignments; public values subtract active SKU.
         raw = value + (len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0)
-        self.row(self.objectives[objective], -math.inf if upper_only else raw, raw)
+        self.row(self.objectives[objective], raw, raw)
 
     def solve_pass(self, objective, *, time_limit: float, incumbent=None,
-                   mip_gap=0, seed=0, threads=1, log_path=None,
-                   expression=None, offset=None, context=None) -> PassResult:
+                   mip_gap=0, seed=0, threads=1, log_path=None) -> PassResult:
         """One bounded native solve. Incumbents survive a limit without a new solution."""
         import highspy
         import numpy as np
 
         started = perf_counter()
-        expression = self.objectives[objective] if expression is None else expression
-        if offset is None:
-            offset = -len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0
+        expression = self.objectives[objective]
+        offset = -len(self.problem.demand) if objective == ObjectiveName.SPLIT else 0
         record = {"objective": objective, "highs_status": "NOT_RUN", "proven_optimal": False,
-                  "value": None, "bound": None, "gap": None, "nodes": 0, "elapsed_ms": 0,
-                  **(context or {})}
+                  "value": None, "bound": None, "gap": None, "nodes": 0, "elapsed_ms": 0}
         def finish(values):
             record["elapsed_ms"] = (perf_counter() - started) * 1000
             if values is not None:
@@ -391,72 +299,44 @@ class SchedulingMilp:
                 values = incumbent
         if values is not None and record["bound"] is not None:
             value = sum(c * values[i] for i, c in expression.items()) + offset
-            record["proven_optimal"] = (
-                feasible and status == highspy.HighsModelStatus.kOptimal and info.mip_gap == 0.0
-                if objective == ObjectiveMode.WEIGHTED else proven_integer_optimum(value, record["bound"]))
+            record["proven_optimal"] = proven_integer_optimum(value, record["bound"])
         return finish(values)
 
     def solve(self, *, time_limit: float = 300, mip_gap: float = 0, seed: int = 0,
-              threads: int = 1, log_path: Path | None = None,
-              objective_mode: ObjectiveMode = ObjectiveMode.LEXICOGRAPHIC,
-              objective_weights: tuple[float, ...] | None = None,
-              optimize_timing: bool = True) -> SolveResult:
-        objective_mode, weights = validate_objective_options(objective_mode, objective_weights, self.working_changeover_weight)
-        weighted = objective_mode == ObjectiveMode.WEIGHTED
-        expressions = {key: expression for key, expression in self.objectives.items()
-                       if optimize_timing or key in (ObjectiveName.CHANGEOVER, ObjectiveName.SPLIT)}
-        if weighted:
-            combined = {}
-            for weight, expression in zip(weights, self.objectives.values()):
-                for index, coefficient in expression.items():
-                    combined[index] = combined.get(index, 0.0) + weight * coefficient
-            for index, coefficient in self.working_changeover_objective.items():
-                combined[index] = self.working_changeover_weight * coefficient
-            if not math.isfinite(-weights[1] * len(self.problem.demand)) or any(not math.isfinite(c) for c in combined.values()):
-                raise ApplicationError(ErrorCode.CLI_ERROR, "Weights overflow objective coefficients")
-            expressions = {ObjectiveMode.WEIGHTED: {i: c for i, c in combined.items() if c}}
+              threads: int = 1, log_path: Path | None = None) -> SolveResult:
         started = perf_counter()
         model = self.model_size()
         if not self.problem.demand:
-            objectives = {key: 0 for key in ObjectiveName}
-            if self.working_changeover_weight:
-                objectives[AdditionalObjectiveName.WORKING_CHANGEOVER] = 0
-            return SolveResult([], SolverStatus.OPTIMAL, objectives, [], model, 0, 0.0 if weighted else None)
+            return SolveResult([], SolverStatus.OPTIMAL, {key: 0 for key in ObjectiveName}, [], model, 0)
         passes, best = [], None
-        # Fixings belong to this invocation; repeated solve() calls reuse the original model.
         row_count = len(self.rows)
         try:
-            for objective, expression in expressions.items():
+            for objective in ObjectiveName:
                 remaining = time_limit - (perf_counter() - started)
                 if remaining <= 0:
                     break
-                result = self.solve_pass(objective, expression=expression,
-                    offset=-weights[1] * len(self.problem.demand) if weighted else None,
-                    time_limit=remaining, incumbent=best, mip_gap=mip_gap, seed=seed,
-                    threads=threads, log_path=log_path)
+                result = self.solve_pass(objective, time_limit=remaining, incumbent=best,
+                                         mip_gap=mip_gap, seed=seed, threads=threads, log_path=log_path)
                 passes.append(result.record)
                 best = result.values
-                if weighted or not result.record["proven_optimal"]:
+                if not result.record["proven_optimal"]:
                     break
-                self.fix_objective(objective, round(result.record["value"]))
+                if objective == ObjectiveName.CHANGEOVER:
+                    self.fix_objective(objective, round(result.record["value"]))
         finally:
             del self.rows[row_count:]
             del self.row_lower[row_count:]
             del self.row_upper[row_count:]
         if best is None:
-            raise ApplicationError(ErrorCode.NO_INCUMBENT, "No feasible solution within the solve budget", ExitCode.NO_INCUMBENT, details=passes)
-        objectives = self.objective_values(best)
-        status = SolverStatus.OPTIMAL if len(passes) == len(expressions) and all(p["proven_optimal"] for p in passes) else SolverStatus.FEASIBLE
-        weighted_value = sum(w * objectives[name] for w, name in zip(weights, ObjectiveName)) if weighted else None
-        if self.working_changeover_weight:
-            weighted_value += self.working_changeover_weight * objectives[AdditionalObjectiveName.WORKING_CHANGEOVER]
-        return SolveResult(self.extract(best), status, objectives, passes, model, (perf_counter()-started)*1000, weighted_value)
+            raise ApplicationError(ErrorCode.NO_INCUMBENT, "No feasible solution within the solve budget",
+                                   ExitCode.NO_INCUMBENT, details=passes)
+        proven = len(passes) == len(ObjectiveName) and all(p["proven_optimal"] for p in passes)
+        return SolveResult(self.extract(best), SolverStatus.OPTIMAL if proven else SolverStatus.FEASIBLE,
+                           self.objective_values(best), passes, model, (perf_counter()-started)*1000)
 
 
 def run_objectives(problem: Problem, runs: list[Run]) -> dict:
     return {
         ObjectiveName.CHANGEOVER: sum(problem.changeover[r.predecessor, r.sku] for r in runs if r.predecessor is not None),
         ObjectiveName.SPLIT: len(runs) - len(problem.demand),
-        ObjectiveName.MAKESPAN: max((r.end for r in runs), default=0),
-        ObjectiveName.STARTS: sum(r.start for r in runs),
     }

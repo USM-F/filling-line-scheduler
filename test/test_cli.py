@@ -28,9 +28,6 @@ def test_inspect_and_debug(input_path, tmp_path, capsys):
     assert records[-1]["exit_code"] == 0
     assert {record["stage"] for record in records if "stage" in record} == {"load_input", "inspect_input", "json_dump"}
     assert "INFO inspection_completed" in captured.err
-    bound = next(record for record in records if record["event"] == "changeover_lower_bound")
-    assert bound["lower_bound_minutes"] == 210
-    assert bound["level"] == "INFO"
 
 
 def test_info_omits_debug(input_path, tmp_path, capsys):
@@ -43,8 +40,8 @@ def test_info_omits_debug(input_path, tmp_path, capsys):
 @pytest.mark.parametrize("args", [
     [], ["unknown"], ["inspect"], ["inspect", "--input"],
     ["--log-level", "INVALID", "inspect", "--input", "missing"],
-    ["solve", "--input", "x", "--output", "y", "--threads-per-worker", "0"],
-    ["solve", "--input", "x", "--output", "y", "--threads-per-worker", "bad"],
+    ["solve", "--input", "x", "--output", "y", "--threads", "0"],
+    ["solve", "--input", "x", "--output", "y", "--threads", "bad"],
     ["solve", "--input", "x", "--output", "y", "--time-limit-seconds", "nan"],
     ["solve", "--input", "x", "--output", "y", "--time-limit-seconds", "bad"],
     ["solve", "--input", "x", "--output", "y", "--mip-gap", "-1"],
@@ -89,13 +86,12 @@ def test_schema_error_logged_with_path(tmp_path, capsys):
     assert any(record["event"] == "stage_failed" for record in events(log))
 
 
-@pytest.mark.parametrize("extra", [[], ["--force"]])
-def test_report_overwrites_by_default(input_path, tmp_path, capsys, extra):
+def test_report_overwrites_by_default(input_path, tmp_path, capsys):
     report = tmp_path / "report.json"
     log = tmp_path / "log.jsonl"
     report.write_text("previous")
     args = ["inspect", "--input", str(input_path), "--report", str(report), "--log-file", str(log)]
-    assert main([*args, *extra]) == 0
+    assert main(args) == 0
     assert report.read_text() == capsys.readouterr().out
     assert json.loads(report.read_text())["lineCount"] == 13
 
@@ -148,8 +144,7 @@ def test_help_and_version(args, tmp_path, monkeypatch, capsys):
 def test_solve_defaults(command):
     args = build_parser().parse_args([command, "--input", "i", "--output", "o"])
     assert args.command == command
-    assert not args.decomposition
-    assert (args.threads_per_worker, args.time_limit_seconds, args.mip_gap, args.seed) == (1, 300, 0, 0)
+    assert (args.threads, args.time_limit_seconds, args.mip_gap, args.seed) == (1, 300, 0, 0)
 
 
 def test_solve_help_exposes_only_implemented_options(capsys):
@@ -157,8 +152,8 @@ def test_solve_help_exposes_only_implemented_options(capsys):
     with pytest.raises(ParserExit):
         build_parser().parse_args(["solve", "--help"])
     help_text = capsys.readouterr().out
-    assert "--threads-per-worker" in help_text
-    for removed in ("--workers", "--work-dir", "--keep-work-dir"):
+    assert "--threads" in help_text
+    for removed in ("--workers", "--decomposition", "--objective-mode", "--timing-mode", "--force"):
         assert removed not in help_text
 
 

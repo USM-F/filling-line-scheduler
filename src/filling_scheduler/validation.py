@@ -7,20 +7,6 @@ from filling_scheduler.problem import Problem
 from filling_scheduler.schedule import Schedule, summarize
 
 
-def changeover_calendar_usage(problem: Problem, schedule: Schedule) -> dict:
-    """Measure occupied working/nonworking minutes in an already validated schedule."""
-    total = working = 0
-    for line in schedule.lines:
-        for slot in line.slots:
-            if slot.type == "changeover":
-                start, end = problem.tick(slot.start), problem.tick(slot.end)
-                total += end - start
-                working += sum(max(0, min(end, w.end) - max(start, w.start)) for w in problem.windows)
-    return {"total_changeover_minutes": total * problem.precision,
-            "working_changeover_minutes": working * problem.precision,
-            "nonworking_changeover_minutes": (total - working) * problem.precision}
-
-
 def validate_schedule(problem: Problem, schedule: Schedule) -> dict:
     errors = []
 
