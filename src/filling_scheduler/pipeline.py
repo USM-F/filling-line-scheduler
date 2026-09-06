@@ -7,7 +7,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
-from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveName, AdditionalObjectiveName
+from filling_scheduler.enums import ErrorCode, EventName, ExitCode, StageName, ObjectiveName, AdditionalObjectiveName, ObjectiveMode, TimingMode
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.gantt import render_html
 from filling_scheduler.input import load_document, load_input
@@ -82,11 +82,16 @@ def check_schedule(problem, schedule):
 
 
 def solve_command(args, run_id: str, log_file: Path) -> dict:
-    from filling_scheduler.milp import SchedulingMilp, validate_objective_options
+    from filling_scheduler.milp import SchedulingMilp, validate_objective_options, run_objectives
     mode, weights = validate_objective_options(args.objective_mode, args.objective_weights, args.working_changeover_weight)
     weight_summary = dict(zip(ObjectiveName, weights)) if weights is not None else None
-    if args.decomposition or args.workers != 1 or args.work_dir is not None or args.keep_work_dir:
-        raise ApplicationError(ErrorCode.CLI_ERROR, "Decomposition and workers are not supported by the monolithic model")
+    timing_mode = args.timing_mode or (TimingMode.HEURISTIC if mode == ObjectiveMode.LEXICOGRAPHIC else TimingMode.EXACT)
+    if mode == ObjectiveMode.WEIGHTED and timing_mode != TimingMode.EXACT:
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Weighted mode uses its explicit objective weights; timing heuristics are unavailable")
+    if args.workers != 1 or args.work_dir is not None or args.keep_work_dir:
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Only sequential in-process solving is supported; worker directories are unavailable")
+    if args.decomposition and mode != ObjectiveMode.LEXICOGRAPHIC:
+        raise ApplicationError(ErrorCode.CLI_ERROR, "Decomposition requires lexicographic mode")
     if not 0 <= args.seed <= 2147483647:
         raise ApplicationError(ErrorCode.CLI_ERROR, "Seed must be between 0 and 2147483647")
     html_path = args.html_output or args.output.with_suffix(".html")
@@ -95,12 +100,28 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     check_outputs([args.output, html_path, metrics_path, native_log], [args.input, log_file], force=args.force)
     started = perf_counter()
     problem = prepare_input(args.input)
-    with timed_stage(StageName.MILP_BUILD):
-        model = SchedulingMilp(problem, working_changeover_weight=args.working_changeover_weight)
-    with timed_stage(StageName.MILP_SOLVE):
-        result = model.solve(time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
-                             seed=args.seed, threads=args.threads_per_worker, log_path=native_log,
-                             objective_mode=mode, objective_weights=weights)
+    if args.decomposition:
+        from filling_scheduler.decomposition import solve_decomposed
+        result = solve_decomposed(problem, time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
+                                  seed=args.seed, threads=args.threads_per_worker, log_path=native_log,
+                                  optimize_timing=timing_mode == TimingMode.EXACT)
+    else:
+        with timed_stage(StageName.MILP_BUILD):
+            model = SchedulingMilp(problem, working_changeover_weight=args.working_changeover_weight)
+        with timed_stage(StageName.MILP_SOLVE):
+            result = model.solve(time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
+                                 seed=args.seed, threads=args.threads_per_worker, log_path=native_log,
+                                 objective_mode=mode, objective_weights=weights,
+                                 optimize_timing=timing_mode == TimingMode.EXACT)
+    timing = {"mode": timing_mode, "before": dict(result.objectives), "elapsed_ms": 0}
+    if timing_mode == TimingMode.HEURISTIC:
+        from filling_scheduler.timing import left_shift
+        shift_started = perf_counter()
+        with timed_stage(StageName.LEFT_SHIFT):
+            result.runs = left_shift(problem, result.runs)
+        result.objectives = run_objectives(problem, result.runs)
+        timing["elapsed_ms"] = (perf_counter()-shift_started)*1000
+    timing["after"] = dict(result.objectives)
     with timed_stage(StageName.MATERIALIZE):
         schedule = materialize_schedule(problem, result, f"{problem.source.id}-{run_id}")
     report = check_schedule(problem, schedule)
@@ -118,15 +139,23 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
                "settings": {"time_limit_seconds": args.time_limit_seconds, "mip_gap": args.mip_gap,
                             "threads": args.threads_per_worker, "seed": args.seed,
                             "objective_mode": mode, "objective_weights": weight_summary,
+                            "decomposition": args.decomposition,
+                            "timing_mode": timing_mode,
                             "working_changeover_weight": args.working_changeover_weight},
                "environment": {"python": platform.python_version(), "highspy": version("highspy"),
                                "architecture": platform.machine(), "platform": platform.platform()},
                "highs_log": str(native_log) if native_log.exists() else None, "summary": report["summary"]}
     metrics["changeover_analysis"] = changeovers
+    metrics["timing"] = timing
+    metrics["proven_objectives"] = [p["objective"] for p in result.passes if p["proven_optimal"]]
+    if args.decomposition:
+        metrics["decomposition"] = result.diagnostics
     with timed_stage(StageName.JSON_DUMP):
         publish_artifacts([(metrics_path, encode_report(metrics)), (html_path, html),
                            (args.output, schedule.model_dump_json(by_alias=True, indent=2) + "\n")], force=args.force)
     response = {"status": result.status, "objective_mode": mode, "objective_weights": weight_summary,
+                "decomposition": args.decomposition,
+                "timing_mode": timing_mode, "proven_objectives": metrics["proven_objectives"],
                 "working_changeover_weight": args.working_changeover_weight,
                 "weighted_value": result.weighted_value, "output": str(args.output), "html": str(html_path),
                 "metrics": str(metrics_path), "objectives": result.objectives, "summary": report["summary"]}

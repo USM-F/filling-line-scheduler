@@ -17,6 +17,7 @@ class ExitCode(IntEnum):
 
 
 class ErrorCode(StrEnum):
+    MERGE_CONFLICT = "MERGE_CONFLICT"
     PROBLEM_INVALID = "PROBLEM_INVALID"
     UNSUPPORTED_PRECISION = "UNSUPPORTED_PRECISION"
     INFEASIBLE = "INFEASIBLE"
@@ -37,6 +38,8 @@ class ErrorCode(StrEnum):
 
 
 class EventName(StrEnum):
+    COMPONENTS_BUILT = "components_built"
+    DECOMPOSITION_COMPLETED = "decomposition_completed"
     CHANGEOVER_LOWER_BOUND = "changeover_lower_bound"
     CHANGEOVER_ANALYSIS = "changeover_analysis"
     SOLVE_PASS_COMPLETED = "solve_pass_completed"
@@ -52,6 +55,9 @@ class EventName(StrEnum):
 
 
 class StageName(StrEnum):
+    LEFT_SHIFT = "left_shift"
+    DECOMPOSE = "decompose"
+    MERGE = "merge"
     PREPARE_PROBLEM = "prepare_problem"
     MILP_BUILD = "milp_build"
     MILP_SOLVE = "milp_solve"
@@ -71,6 +77,12 @@ class SolverStatus(StrEnum):
 class ObjectiveMode(StrEnum):
     LEXICOGRAPHIC = "lexicographic"
     WEIGHTED = "weighted"
+
+
+class TimingMode(StrEnum):
+    HEURISTIC = "heuristic"
+    EXACT = "exact"
+    NONE = "none"
 
 
 class ObjectiveName(StrEnum):

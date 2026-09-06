@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from hashlib import sha256
 from html import escape
+import re
 from zoneinfo import ZoneInfo
 
 from filling_scheduler.schedule import Schedule
@@ -12,6 +13,12 @@ from filling_scheduler.problem import Problem
 def sku_color(sku: str) -> str:
     hue = int.from_bytes(sha256(sku.encode("utf-8")).digest()[:4], "big") % 360
     return f"hsl({hue}, 62%, 45%)"
+
+
+def line_sort_key(line):
+    # Compare digit groups numerically, preserving arbitrary identifier prefixes.
+    parts = re.split(r"(\d+)", line.line_id)
+    return tuple((1, int(part)) if index % 2 else (0, part) for index, part in enumerate(parts)), line.line_id
 
 
 def timing_summary(schedule: Schedule, problem: Problem | None) -> dict:
@@ -45,6 +52,7 @@ def timing_summary(schedule: Schedule, problem: Problem | None) -> dict:
 def render_html(schedule: Schedule, problem: Problem | None = None) -> str:
     e = escape
     zone = ZoneInfo(schedule.time_zone)
+    lines = sorted(schedule.lines, key=line_sort_key)
     slots = [slot for line in schedule.lines for slot in line.slots]
     if any(slot.end <= slot.start for slot in slots):
         raise ValueError("Cannot draw a slot with nonpositive duration")
@@ -91,7 +99,7 @@ def render_html(schedule: Schedule, problem: Problem | None = None) -> str:
             svg.append(f'<path d="M{x:.2f},50 V{height-15}" stroke="#dce3ec"/>')
             svg.append(f'<text x="{x:.2f}" y="23" text-anchor="middle" class="axis">{instant:%d.%m}</text>')
             svg.append(f'<text x="{x:.2f}" y="42" text-anchor="middle" class="axis">{instant:%H:%M %z}</text>')
-        for index, line in enumerate(schedule.lines):
+        for index, line in enumerate(lines):
             y = top + index * row_height
             svg.append(f'<text class="line-label" x="12" y="{y+24}">{e(line.line_id)}</text>')
             svg.append(f'<path d="M{left},{y+42} H{width-15:.2f}" stroke="#e7ecf2"/>')
@@ -119,7 +127,7 @@ def render_html(schedule: Schedule, problem: Problem | None = None) -> str:
                 svg.append('</g>')
         drawing = '<div class="chart">' + "".join(svg) + '</svg></div>'
     else:
-        drawing += '<p>Линии: ' + ', '.join(e(line.line_id) for line in schedule.lines) + '</p>'
+        drawing += '<p>Линии: ' + ', '.join(e(line.line_id) for line in lines) + '</p>'
     return ('<!doctype html><html lang="ru"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>График разлива — {e(schedule.schedule_id)}</title><style>'

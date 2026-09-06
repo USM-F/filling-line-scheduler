@@ -107,3 +107,20 @@ def test_render_rejects_slots_outside_supplied_horizon():
     _, schedule = generated(calendar_example())
     with pytest.raises(ValueError, match="horizon"):
         render_html(schedule, lunch_example())
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_gantt_orders_numbered_lines_naturally(empty):
+    _, schedule = generated(example({"A": 0} if empty else None))
+    raw = schedule.model_dump(mode="json", by_alias=True)
+    original = raw["lines"]
+    raw["lines"] = [{"line": "L10", "slots": []}, original[1],
+                    {"line": "L13", "slots": []}, original[0], {"line": "L3", "slots": []}]
+    schedule = Schedule.model_validate(raw)
+    html = render_html(schedule)
+    if empty:
+        assert "Линии: L1, L2, L3, L10, L13" in html
+    else:
+        positions = [html.index(f'>{line}</text>') for line in ["L1", "L2", "L3", "L10", "L13"]]
+        assert positions == sorted(positions)
+    assert [line.line_id for line in schedule.lines] == ["L10", "L2", "L13", "L1", "L3"]
