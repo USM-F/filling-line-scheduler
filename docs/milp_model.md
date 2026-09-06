@@ -2,6 +2,17 @@
 
 Implementation: [`milp.py`](../src/filling_scheduler/milp.py). Solver: HiGHS. Contract: [assignment](filling_only_20_product_assignment.md).
 
+## According to the task
+
+- Produces the full required quantity for every product — [constraint (2)](#c2).
+- Assigns products only to eligible filling lines — [constraint (1)](#c1).
+- Respects line capacity, working shifts, and breaks — [constraints (3)–(4)](#c3) and [(9)–(11)](#c9) for capacity, [(5)–(8)](#c5) for the calendar and horizon, [(12)–(14)](#c12) for line exclusivity.
+- Reserves changeover time before switching products on the same line — [constraint (14)](#c14).
+- Places changeover time in the gap between shifts, during lunch breaks, or during shift working hours — [constraint (14)](#c14) uses elapsed time; working-window constraints [(5)–(7)](#c5) apply only to production.
+- Minimizes total changeover time — [objective (O1)](#o1), first priority.
+- Keeps each product on as few lines as practical — [objective (O2)](#o2), second priority.
+- Avoids fragmented sequences such as A-B-A-B-A — [constraints (12)–(14)](#c12) form a path with at most one run per product–line pair; [(5)–(7)](#c5) permit pauses within a run only outside working time.
+
 ## Scope and data
 
 Production runs use eligible lines, meet demand exactly and remain within the input horizon. A product has at most one run on each line; a run can pause only outside working time. Changeovers occupy elapsed time and may cross breaks or shift boundaries. Lines have no shared setup resource. The first product on a line needs no setup.
@@ -44,13 +55,33 @@ All variables of an unassigned pair are zero.
 
 For $(i,\ell),(j,\ell)\in E$, $i\ne j$, binary $x_{ij\ell}$ equals 1 if product $j$ immediately follows product $i$ on line $\ell$; 0 otherwise. For $\ell\in L$, binary $v_\ell$ equals 1 if line $\ell$ produces at least one product; 0 otherwise.
 
+<a id="c1"></a>
+
+**Constraint (1): eligibility.**
+
+$$
+y_{i\ell}=q_{i\ell}=0\qquad\forall(i,\ell)\in(I\times L)\setminus E.
+\tag{1}
+$$
+
+These fixed-zero variables are omitted from the implementation.
+
 ## Objectives
 
 Solve sequentially, fixing the first objective only after its optimum is proven:
 
+<a id="o1"></a>
+
 $$
-\min F_1=\sum_{\ell,i\ne j} C_{ij}x_{ij\ell},\qquad
+\min F_1=\sum_{\ell,i\ne j} C_{ij}x_{ij\ell}.
+\tag{O1}
+$$
+
+<a id="o2"></a>
+
+$$
 \min F_2=\sum_{(i,\ell)\in E}y_{i\ell}-|I|.
+\tag{O2}
 $$
 
 $F_1$ is total setup time; $F_2$ counts additional line assignments. The JSON summary instead counts products using more than one line. This implements “as few lines as practical” as a secondary objective; the assignment specifies no numerical tradeoff.
@@ -61,15 +92,29 @@ Both passes share the solve budget. An unproven pass stops the sequence. A feasi
 
 Below, pair indices are omitted in formulas applying independently to every eligible pair. Let $m$ be the number of windows and $R=(m-1)_+(d-1)$.
 
+<a id="c2"></a>
+
 $$
-\sum_{\ell:(i,\ell)\in E}q_{i\ell}=D_i,\qquad y\le q\le D_i y,
+\sum_{\ell:(i,\ell)\in E}q_{i\ell}=D_i\qquad\forall i\in I.
+\tag{2}
 $$
+
+<a id="c3"></a>
+
 $$
-0\le p\le P y,\qquad dq\le np,\qquad dq\ge np-(n-1+R)y,\qquad c-s\ge p,
+\begin{gathered}
+y\le q\le D_i y,\qquad 0\le p\le P y,\qquad c-s\ge p,\\
+dq\le np,\qquad dq\ge np-(n-1+R)y.
+\end{gathered}
+\tag{3}
 $$
+
+<a id="c4"></a>
+
 $$
 P=\min\left(H,\left\lceil\frac{dD_i+R}{n}\right\rceil\right),\qquad
 q\le\min\left(D_i,\sum_k\left\lfloor\frac{nh_k}{d}\right\rfloor\right).
+\tag{4}
 $$
 
 For integral rates ($d=1$), these constraints enforce $p=\lceil q/u\rceil$. Fractional rates also require the per-window constraints below.
@@ -78,16 +123,34 @@ For integral rates ($d=1$), these constraints enforce $p=\lceil q/u\rceil$. Frac
 
 For every eligible pair:
 
+<a id="c5"></a>
+
 $$
 \sum_k z^s_k=\sum_k z^c_k=y,\qquad
 0\le\sigma_k\le(h_k-1)z^s_k,\qquad z^c_k\le\kappa_k\le h_kz^c_k,
+\tag{5}
 $$
+
+<a id="c6"></a>
+
 $$
 s=\sum_k(A_kz^s_k+\sigma_k),\qquad
 c=\sum_k(A_kz^c_k+\kappa_k),
+\tag{6}
 $$
+
+<a id="c7"></a>
+
 $$
 p=\sum_k(F_kz^c_k+\kappa_k-F_kz^s_k-\sigma_k).
+\tag{7}
+$$
+
+<a id="c8"></a>
+
+$$
+0\le s_{i\ell},c_{i\ell}\le T\qquad\forall(i,\ell)\in E.
+\tag{8}
 $$
 
 Only one start and end window can be selected. Integer $s,c$ make their selected offsets integer. Duration counts every working tick between start and completion, excluding breaks. All slots must fit inside the horizon; there is no overtime slack or separate `max_makespan` option.
@@ -98,16 +161,27 @@ Only pairs with $d>1$ need additional variables $a_{i\ell k}\in[0,1]$ and $q_{i\
 
 Omitting the fixed pair indices $(i,\ell)$, set $a_{-1}=z^c_{-1}=0$:
 
+<a id="c9"></a>
+
 $$
 a_k=a_{k-1}+z^s_k-z^c_{k-1},\qquad
 t_k=h_ka_k-\sigma_k-h_kz^c_k+\kappa_k,
+\tag{9}
 $$
+
+<a id="c10"></a>
+
 $$
 \sum_k q_k=q,\qquad
 q_k\le\min(D_i,\lfloor nh_k/d\rfloor),\qquad 2q_k\ge z^s_k+z^c_k,
+\tag{10}
 $$
+
+<a id="c11"></a>
+
 $$
 0\le nt_k-dq_k\le(d-1)a_k+(n-d)z^c_k.
+\tag{11}
 $$
 
 The recurrence makes $a_k$ binary. Nonfinal windows produce $\lfloor nt_k/d\rfloor$ whole units. In the final window, $t_k=\lceil dq_k/n\rceil$. Start and end windows must produce at least one unit. Intermediate windows may contribute zero units at low rates.
@@ -116,15 +190,26 @@ The recurrence makes $a_k$ binary. Nonfinal windows produce $\lfloor nt_k/d\rflo
 
 For each eligible pair, with sums over other eligible products on the same line:
 
+<a id="c12"></a>
+
 $$
 f_{i\ell}+\sum_{j\ne i}x_{ji\ell}=y_{i\ell},\qquad
 g_{i\ell}+\sum_{j\ne i}x_{ij\ell}=y_{i\ell},
+\tag{12}
 $$
+
+<a id="c13"></a>
+
 $$
 \sum_i f_{i\ell}=\sum_i g_{i\ell}=v_\ell,
+\tag{13}
 $$
+
+<a id="c14"></a>
+
 $$
 s_{j\ell}\ge c_{i\ell}+C_{ij}-(T+C_{ij})(1-x_{ij\ell}).
+\tag{14}
 $$
 
 Positive production duration and temporal precedence exclude cycles. Each used line therefore has one path, without overlap or returning to a completed product. Setup begins at predecessor completion and ends before successor production.
