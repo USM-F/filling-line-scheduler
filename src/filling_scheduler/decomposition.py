@@ -8,7 +8,7 @@ from time import perf_counter
 
 from filling_scheduler.enums import ErrorCode, EventName, ExitCode, ObjectiveName, SolverStatus, StageName
 from filling_scheduler.errors import ApplicationError
-from filling_scheduler.milp import Run, SchedulingMilp, SolveResult, run_objectives
+from filling_scheduler.milp import Run, SchedulingMilp, SolveResult, run_objectives, proven_integer_optimum
 from filling_scheduler.problem import Problem
 from filling_scheduler.stage_timing import timed_stage
 
@@ -89,6 +89,29 @@ def merge_runs(problem: Problem, components: list[Component], results: dict[str,
     return sorted(merged, key=lambda run: (run.line, run.start, run.sku))
 
 
+def objective_progress(objective, models, incumbents, records) -> dict:
+    """Global proof; makespan needs a matching max bound, not every local optimum.
+
+    An unattempted local makespan has the valid lower bound zero. Its incumbent
+    from the preceding objective still supplies a feasible completion time.
+    Additive passes retain the requirement to prove every local optimum.
+    """
+    values = [m.objective_values(v)[objective] if v is not None else None for m, v in zip(models, incumbents)]
+    bounds = [r["bound"] if r else None for r in records]
+    makespan = objective == ObjectiveName.MAKESPAN
+    aggregate = max if makespan else sum
+    value = aggregate(values) if values and all(v is not None for v in values) else (0 if not models else None)
+    if makespan:
+        bound = max((b for b in bounds if b is not None), default=0)
+        proven = value is not None and proven_integer_optimum(value, bound)
+    else:
+        bound = sum(bounds) if all(b is not None for b in bounds) else None
+        proven = all(r is not None and r["proven_optimal"] for r in records)
+    return {"objective": objective, "value": value, "bound": bound, "proven_optimal": proven,
+            "proof_basis": ("global_bounds" if makespan else "component_optima") if proven else None,
+            "gap": max(0, value-bound) / max(1, abs(value)) if value is not None and bound is not None else None}
+
+
 def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, threads=1,
                      log_path: Path | None = None, optimize_timing=True) -> SolveResult:
     with timed_stage(StageName.DECOMPOSE):
@@ -140,24 +163,33 @@ def solve_decomposed(problem: Problem, *, time_limit=300, mip_gap=0, seed=0, thr
                     records[index] = record
                     gap_reached |= bool(mip_gap > 0 and not record["proven_optimal"] and
                                         record["highs_status"] == "kOptimal" and result.values is not None)
+                    if objective == ObjectiveName.MAKESPAN and objective_progress(objective, models, best, records)["proven_optimal"]:
+                        break
+                if objective == ObjectiveName.MAKESPAN:
+                    progress = objective_progress(objective, models, best, records)
+                    if progress["proven_optimal"]:
+                        break
+                    # A feasible completion below the global lower bound cannot
+                    # be the bottleneck, even if its local minimum is unknown.
+                    pending = [i for i, (model, values) in enumerate(zip(models, best))
+                               if values is None or not proven_integer_optimum(
+                                   model.objective_values(values)[objective], progress["bound"])]
+                else:
+                    pending = [i for i, record in enumerate(records) if not record or not record["proven_optimal"]]
                 if gap_reached:
                     break
-                pending = [i for i, record in enumerate(records) if not record or not record["proven_optimal"]]
-            proven = all(r is not None and r["proven_optimal"] for r in records)
-            values = [m.objective_values(v)[objective] if v is not None else None for m, v in zip(models, best)]
-            bounds = [r["bound"] if r else None for r in records]
-            aggregate = max if objective == ObjectiveName.MAKESPAN else sum
-            value = aggregate(values) if values and all(v is not None for v in values) else (0 if not models else None)
-            bound = aggregate(bounds) if bounds and all(b is not None for b in bounds) else (0 if not models else None)
-            global_passes.append({"objective": objective, "value": value, "bound": bound,
-                "proven_optimal": proven,
-                "gap": max(0, value-bound) / max(1, abs(value)) if value is not None and bound is not None else None})
-            if not proven:
+            progress = objective_progress(objective, models, best, records)
+            global_passes.append(progress)
+            if not progress["proven_optimal"]:
                 reason = "gap_reached" if gap_reached else "time_limit"
                 break
             for index, model in enumerate(models):
                 if objective == ObjectiveName.MAKESPAN:
-                    model.fix_objective(objective, value, upper_only=True)
+                    # Earlier passes need not minimize the auxiliary M column.
+                    # Keep a skipped component's warm start feasible under the cap.
+                    makespan_column = next(iter(model.objectives[objective]))
+                    best[index][makespan_column] = model.objective_values(best[index])[objective]
+                    model.fix_objective(objective, progress["value"], upper_only=True)
                 elif objective != ObjectiveName.STARTS:
                     model.fix_objective(objective, round(records[index]["value"]))
         if any(v is None for v in best):

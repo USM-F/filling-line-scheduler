@@ -42,7 +42,6 @@ def test_semantic_errors(change):
 
 
 @pytest.mark.parametrize("change", [
-    lambda d: d["lines"][0]["eligibleProducts"][0].update(capacityUnitsPerHour=61),
     lambda d: d["planningHorizon"].update(precisionMinutes=3),
 ])
 def test_unsupported_grid(change):

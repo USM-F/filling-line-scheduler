@@ -90,10 +90,13 @@ def materialize_schedule(problem: Problem, result: "SolveResult", schedule_id: s
                                   "end": problem.timestamp(start + duration), "fromProduct": previous.sku,
                                   "toProduct": run.sku, "durationMinutes": duration * problem.precision})
             remaining = run.quantity
+            units = problem.units_per_tick[run.sku, line]
             for window in problem.windows:
                 a, b = max(run.start, window.start), min(run.end, window.end)
                 if a < b:
-                    quantity = min(remaining, (b-a) * problem.units_per_tick[run.sku, line])
+                    quantity = min(remaining, units.numerator * (b-a) // units.denominator)
+                    if not quantity:
+                        continue
                     slots.append({"type": "production", "start": problem.timestamp(a), "end": problem.timestamp(b),
                                   "product": run.sku, "quantityUnits": quantity})
                     remaining -= quantity

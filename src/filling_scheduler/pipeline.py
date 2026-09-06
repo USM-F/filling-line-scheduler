@@ -49,12 +49,10 @@ def paths_alias(first: Path, second: Path) -> bool:
         return False
 
 
-def check_outputs(outputs: list[Path], inputs: list[Path], *, force: bool) -> None:
+def check_outputs(outputs: list[Path], inputs: list[Path]) -> None:
     for index, path in enumerate(outputs):
         if any(paths_alias(path, other) for other in inputs + outputs[:index]):
             raise ApplicationError(ErrorCode.CLI_ERROR, "Output paths must be distinct from inputs and each other")
-        if not force and (path.exists() or path.is_symlink()):
-            raise ApplicationError(ErrorCode.OUTPUT_CONFLICT, "Artifact exists; use --force", ExitCode.ARTIFACT_ERROR)
         if path.is_dir():
             raise ApplicationError(ErrorCode.OUTPUT_WRITE_ERROR, "Output is a directory", ExitCode.ARTIFACT_ERROR)
 
@@ -88,8 +86,6 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     timing_mode = args.timing_mode or (TimingMode.HEURISTIC if mode == ObjectiveMode.LEXICOGRAPHIC else TimingMode.EXACT)
     if mode == ObjectiveMode.WEIGHTED and timing_mode != TimingMode.EXACT:
         raise ApplicationError(ErrorCode.CLI_ERROR, "Weighted mode uses its explicit objective weights; timing heuristics are unavailable")
-    if args.workers != 1 or args.work_dir is not None or args.keep_work_dir:
-        raise ApplicationError(ErrorCode.CLI_ERROR, "Only sequential in-process solving is supported; worker directories are unavailable")
     if args.decomposition and mode != ObjectiveMode.LEXICOGRAPHIC:
         raise ApplicationError(ErrorCode.CLI_ERROR, "Decomposition requires lexicographic mode")
     if not 0 <= args.seed <= 2147483647:
@@ -97,9 +93,12 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
     html_path = args.html_output or args.output.with_suffix(".html")
     metrics_path = args.output.with_suffix(".metrics.json")
     native_log = Path(f".logs/{run_id}.highs.log")
-    check_outputs([args.output, html_path, metrics_path, native_log], [args.input, log_file], force=args.force)
+    check_outputs([args.output, html_path, metrics_path, native_log], [args.input, log_file])
     started = perf_counter()
     problem = prepare_input(args.input)
+    with timed_stage(StageName.INSPECT_INPUT):
+        inspection = inspect_input(problem.source)
+    logger.info(EventName.INSPECTION_COMPLETED, extra={"fields": {"summary": inspection}})
     if args.decomposition:
         from filling_scheduler.decomposition import solve_decomposed
         result = solve_decomposed(problem, time_limit=args.time_limit_seconds, mip_gap=args.mip_gap,
@@ -152,7 +151,7 @@ def solve_command(args, run_id: str, log_file: Path) -> dict:
         metrics["decomposition"] = result.diagnostics
     with timed_stage(StageName.JSON_DUMP):
         publish_artifacts([(metrics_path, encode_report(metrics)), (html_path, html),
-                           (args.output, schedule.model_dump_json(by_alias=True, indent=2) + "\n")], force=args.force)
+                           (args.output, schedule.model_dump_json(by_alias=True, indent=2) + "\n")])
     response = {"status": result.status, "objective_mode": mode, "objective_weights": weight_summary,
                 "decomposition": args.decomposition,
                 "timing_mode": timing_mode, "proven_objectives": metrics["proven_objectives"],
@@ -181,9 +180,9 @@ def validate_command(args) -> dict:
 
 def render_command(args, log_file: Path) -> dict:
     inputs = [args.schedule, log_file] + ([args.input] if args.input else [])
-    check_outputs([args.html_output], inputs, force=args.force)
+    check_outputs([args.html_output], inputs)
     schedule = load_document(args.schedule, Schedule)
     problem = prepare_input(args.input) if args.input else None
     html = checked_html(schedule, problem)
-    publish_artifacts([(args.html_output, html)], force=args.force)
+    publish_artifacts([(args.html_output, html)])
     return {"html": str(args.html_output), "scheduleId": schedule.schedule_id}

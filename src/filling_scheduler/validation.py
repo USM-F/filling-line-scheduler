@@ -63,19 +63,26 @@ def validate_schedule(problem: Problem, schedule: Schedule) -> dict:
             units = problem.units_per_tick.get((sku, line.line_id))
             if units is None:
                 fail("ELIGIBILITY", path, "Product is inactive, unknown, or incompatible with line")
-            elif not (b-a-1)*units < slot.quantity <= (b-a)*units:
-                fail("CAPACITY", path, "Only the last tick of production may be partially filled")
+            elif slot.quantity * units.denominator > (b-a) * units.numerator:
+                fail("CAPACITY", path, "Production exceeds the exact line capacity")
+            capacity = (b-a) * units.numerator // units.denominator if units is not None else None
             if not any(w.start <= a < b <= w.end for w in problem.windows):
                 fail("CALENDAR", path, "Production slot must lie inside one work window")
             if runs and runs[-1]["sku"] == sku:
                 last = runs[-1]
                 if pending:
                     fail("CHANGEOVER_SEQUENCE", path, "No changeover is allowed within a run")
-                if any(max(last["end"], w.start) < min(a, w.end) for w in problem.windows):
-                    fail("RUN_GAP", path, "A run may pause only during nonworking time")
+                for w in problem.windows:
+                    if max(last["end"], w.start) < min(a, w.end):
+                        empty_window = (last["end"] <= w.start and w.end <= a and units is not None
+                                        and (w.end-w.start) * units.numerator < units.denominator)
+                        if not empty_window:
+                            fail("RUN_GAP", path, "A run may skip only nonworking time or a whole window too short for one unit")
+                            break
                 if last["last_capacity"] is not None and last["last_quantity"] != last["last_capacity"]:
-                    fail("ROUNDING", path, "A partial tick is allowed only at the end of a run")
-                last.update(end=b, last_quantity=slot.quantity, last_capacity=(b-a)*units if units else None)
+                    fail("ROUNDING", path, "Nonfinal slots must produce all whole units fitting before the break")
+                last.update(end=b, last_quantity=slot.quantity, last_capacity=capacity,
+                            last_duration=b-a, last_path=path)
             else:
                 if any(r["sku"] == sku for r in runs):
                     fail("FRAGMENTATION", path, "Product returns to a line after another product")
@@ -85,8 +92,13 @@ def validate_schedule(problem: Problem, schedule: Schedule) -> dict:
                         fail("CHANGEOVER_SEQUENCE", path, "Missing or incorrect transition between products")
                 elif pending:
                     fail("CHANGEOVER_SEQUENCE", path, "Unexpected changeover before the first run or a zero-cost transition")
-                runs.append(dict(sku=sku, end=b, last_quantity=slot.quantity, last_capacity=(b-a)*units if units else None))
+                runs.append(dict(sku=sku, end=b, units=units, last_quantity=slot.quantity, last_capacity=capacity,
+                                 last_duration=b-a, last_path=path))
             pending = []
+        for run in runs:
+            units = run["units"]
+            if units is not None and run["last_quantity"] * units.denominator <= (run["last_duration"]-1) * units.numerator:
+                fail("CAPACITY", run["last_path"], "Final production slot must use the minimum number of planning ticks")
         if pending:
             fail("CHANGEOVER_SEQUENCE", f"lines[{li}]", "Trailing changeover has no subsequent production")
     expected_demand = {d.sku_id: d.demand_units for d in problem.source.demand}

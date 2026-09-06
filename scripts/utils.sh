@@ -19,6 +19,47 @@ fail() {
     exit 2
 }
 
+prepare_input_mounts() {
+    FLS_CLI_ARGS=("$@")
+    FLS_INPUT_MOUNTS=()
+    local index option value candidate resolved value_index
+    local -A mounted=()
+    for ((index=0; index<${#FLS_CLI_ARGS[@]}; index++)); do
+        option=${FLS_CLI_ARGS[index]}
+        value_index=${index}
+        case "${option}" in
+            --input|--schedule)
+                value_index=$((index + 1))
+                if ((value_index >= ${#FLS_CLI_ARGS[@]})); then
+                    continue
+                fi
+                value=${FLS_CLI_ARGS[value_index]}
+                ;;
+            --input=*|--schedule=*) value=${option#*=} ;;
+            *) continue ;;
+        esac
+        candidate=${value}
+        if [[ ${candidate} != /* ]]; then
+            candidate="${FLS_WORK_DIR}/${candidate}"
+        fi
+        # Leave invalid/missing paths to the CLI's structured input diagnostics.
+        if [[ ! -f ${candidate} ]]; then
+            continue
+        fi
+        resolved=$(realpath -e -- "${candidate}")
+        if [[ -z ${mounted[${resolved}]+present} ]]; then
+            FLS_INPUT_MOUNTS+=(-v "${resolved}:${resolved}:ro")
+            mounted[${resolved}]=1
+        fi
+        if [[ ${option} == *=* ]]; then
+            FLS_CLI_ARGS[value_index]="${option%%=*}=${resolved}"
+        else
+            FLS_CLI_ARGS[value_index]=${resolved}
+            index=${value_index}
+        fi
+    done
+}
+
 # Only remove environments created by this checkout, never an arbitrary directory.
 validate_venv_path() {
     if [[ "${VENV_DIR}" != /* ]]; then

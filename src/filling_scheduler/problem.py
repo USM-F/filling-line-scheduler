@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from fractions import Fraction
 from zoneinfo import ZoneInfo
 
 from filling_scheduler.enums import ErrorCode
@@ -71,7 +72,7 @@ class Problem:
     precision: int
     demand: dict[str, int]
     lines: tuple[str, ...]
-    units_per_tick: dict[tuple[str, str], int]
+    units_per_tick: dict[tuple[str, str], int | Fraction]
     changeover: dict[tuple[str, str], int]
     windows: tuple[WorkWindow, ...]
 
@@ -120,12 +121,11 @@ def prepare_problem(source: SchedulingInput) -> Problem:
         for product in line.eligible_products:
             if product.sku_id not in sku_ids:
                 invalid("Eligibility references an unknown product", f"lines.{line.line_id}")
-            units = product.capacity_units_per_hour * horizon.precision_minutes / 60
-            if units != units.to_integral_value() or units < 1:
-                raise ApplicationError(ErrorCode.UNSUPPORTED_PRECISION, "Capacity must give integer units per planning tick",
-                                       details=[{"path": f"lines.{line.line_id}.{product.sku_id}.capacityUnitsPerHour"}])
+            # Decimal -> Fraction preserves the input exactly, including rates
+            # below one unit per tick. Do not round the physical line speed.
+            units = Fraction(product.capacity_units_per_hour) * horizon.precision_minutes / 60
             if product.sku_id in demand:
-                rates[product.sku_id, line.line_id] = int(units)
+                rates[product.sku_id, line.line_id] = units.numerator if units.denominator == 1 else units
     for sku in demand:
         if not any(pair[0] == sku for pair in rates):
             invalid("Active product has no eligible line", f"demand.{sku}")

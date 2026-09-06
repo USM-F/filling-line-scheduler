@@ -108,18 +108,23 @@ class SchedulingMilp:
         self.objectives[ObjectiveName.MAKESPAN][makespan] = 1
         for (sku, line), units in problem.units_per_tick.items():
             demand = problem.demand[sku]
-            pmax = min((demand + units - 1) // units, problem.available_ticks)
+            n, d = units.numerator, units.denominator
+            # Each pause can leave less than one whole unit of unused capacity.
+            loss = max(0, len(problem.windows) - 1) * (d - 1)
+            pmax = min((d * demand + loss + n - 1) // n, problem.available_ticks)
+            qmax = (units * problem.available_ticks if d == 1 else
+                    sum(n * (w.end - w.start) // d for w in problem.windows))
             variables = {
                 name: self.variable(f"{name}[{sku},{line}]", upper)
-                for name, upper in [("assign", 1), ("quantity", min(demand, units * problem.available_ticks)),
+                for name, upper in [("assign", 1), ("quantity", min(demand, qmax)),
                                     ("duration", pmax), ("start", T), ("end", T), ("first", 1), ("last", 1)]
             }
             self.variables[sku, line] = variables
             y, q, p, s, c = (variables[name] for name in ("assign", "quantity", "duration", "start", "end"))
             self.row({q: 1, y: -demand}, upper=0)
             self.row({q: 1, y: -1}, lower=0)
-            self.row({q: 1, p: -units}, upper=0)
-            self.row({q: 1, p: -units, y: units - 1}, lower=0)
+            self.row({q: d, p: -n}, upper=0)
+            self.row({q: d, p: -n, y: n - 1 + loss}, lower=0)
             self.row({p: 1, y: -pmax}, upper=0)
             self.row({c: 1, s: -1, p: -1}, lower=0)
             self.row({makespan: 1, c: -1}, lower=0)
@@ -127,12 +132,14 @@ class SchedulingMilp:
             self.objectives[ObjectiveName.STARTS][s] = 1
             starts, ends = {y: -1}, {y: -1}
             wall_start, wall_end, productive = {s: 1}, {c: 1}, {p: -1}
+            window_variables = []
             for index, window in enumerate(problem.windows):
                 length = window.end - window.start
                 zs = self.variable(f"start_window[{sku},{line},{index}]", 1)
                 ze = self.variable(f"end_window[{sku},{line},{index}]", 1)
                 sigma = self.variable(f"start_offset[{sku},{line},{index}]", length - 1, integer=False)
                 kappa = self.variable(f"end_offset[{sku},{line},{index}]", length, integer=False)
+                window_variables.append((zs, ze, sigma, kappa))
                 self.row({sigma: 1, zs: -(length - 1)}, upper=0)
                 self.row({kappa: 1, ze: -length}, upper=0)
                 self.row({kappa: 1, ze: -1}, lower=0)
@@ -143,6 +150,8 @@ class SchedulingMilp:
                                    zs: -window.cumulative, sigma: -1})
             for coefficients in (starts, ends, wall_start, wall_end, productive):
                 self.row(coefficients, 0, 0)
+            if d != 1:
+                self.build_fractional_capacity(sku, line, n, d, window_variables)
         for sku, demand in problem.demand.items():
             self.row({v["quantity"]: 1 for (product, _), v in self.variables.items() if product == sku}, demand, demand)
         for line in problem.lines:
@@ -172,6 +181,38 @@ class SchedulingMilp:
                         outgoing[self.arcs[sku, other, line]] = 1
                 self.row(incoming, 0, 0)
                 self.row(outgoing, 0, 0)
+
+    def build_fractional_capacity(self, sku, line, n, d, windows) -> None:
+        """Whole units per physical work window, with exact rational speed n/d.
+
+        h marks windows traversed by the run and is continuous: its recurrence
+        in binary start/end selections already makes it 0 or 1. Nonfinal windows
+        fill floor(n*t/d) units; the final window uses the shortest number of ticks.
+        No fractional unit of capacity is carried through a nonworking break.
+        """
+        total = {self.variables[sku, line]["quantity"]: -1}
+        previous_active = previous_end = None
+        for index, (window, (zs, ze, sigma, kappa)) in enumerate(zip(self.problem.windows, windows)):
+            length = window.end - window.start
+            active = self.variable(f"active_window[{sku},{line},{index}]", 1, integer=False)
+            quantity = self.variable(f"window_quantity[{sku},{line},{index}]",
+                                     min(self.problem.demand[sku], n * length // d))
+            total[quantity] = 1
+            recurrence = {active: 1, zs: -1}
+            if previous_active is not None:
+                recurrence.update({previous_active: -1, previous_end: 1})
+            self.row(recurrence, 0, 0)
+            # t = length*h - sigma - length*ze + kappa.
+            capacity = {quantity: d, active: -n * length, sigma: n, ze: n * length, kappa: -n}
+            self.row(capacity, upper=0)
+            minimum = dict(capacity)
+            minimum[active] += d - 1
+            minimum[ze] += n - d
+            self.row(minimum, lower=0)
+            # Starting/ending a run requires at least one completed unit here.
+            self.row({quantity: 2, zs: -1, ze: -1}, lower=0)
+            previous_active, previous_end = active, ze
+        self.row(total, 0, 0)
 
     def build_setup_times(self) -> None:
         """Place each incoming setup in calendar time and measure its occupied work ticks.

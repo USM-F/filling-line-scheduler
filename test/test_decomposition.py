@@ -99,6 +99,77 @@ def test_global_makespan_releases_short_component():
     assert result.passes[2]["bound"] == 300
 
 
+@pytest.mark.parametrize("local_bound", [None, 120.0])
+def test_global_makespan_does_not_wait_for_noncritical_local_proof(monkeypatch, local_bound):
+    original = SchedulingMilp.solve_pass
+    attempts = []
+
+    def limited_local(self, objective, **options):
+        component = options["context"]["component_id"]
+        attempts.append((component, objective))
+        result = original(self, objective, **options)
+        if component == "C01" and objective == "makespan_ticks":
+            result.record.update(proven_optimal=False, highs_status="kTimeLimit", bound=local_bound)
+        return result
+
+    monkeypatch.setattr(SchedulingMilp, "solve_pass", limited_local)
+    problem = prepared(makespan_tradeoff())
+    result = solve_decomposed(problem, time_limit=10)
+    assert result.status == "OPTIMAL"
+    assert result.objectives == dict(changeover_ticks=30, split_excess=0, makespan_ticks=300, start_sum_ticks=90)
+    assert attempts.count(("C01", "makespan_ticks")) == 1
+    assert ("C01", "start_sum_ticks") in attempts
+    assert not result.diagnostics["components"][0]["passes"][2]["proven_optimal"]
+    assert result.passes[2]["proven_optimal"]
+    assert result.passes[2]["proof_basis"] == "global_bounds"
+    assert validate_schedule(problem, materialize_schedule(problem, result, "global-proof"))["valid"]
+
+
+def test_makespan_can_skip_local_solve_and_preserve_feasible_warm_start(monkeypatch):
+    original = SchedulingMilp.solve_pass
+    attempts = []
+
+    def controlled(self, objective, **options):
+        component = options["context"]["component_id"]
+        attempts.append((component, objective))
+        if objective == "start_sum_ticks":
+            incumbent = options["incumbent"]
+            assert all(lo - 1e-6 <= sum(c * incumbent[i] for i, c in row.items()) <= hi + 1e-6
+                       for row, lo, hi in zip(self.rows, self.row_lower, self.row_upper))
+        result = original(self, objective, **options)
+        if objective == "split_excess":
+            # Return an early feasible schedule with an unconstrained auxiliary M.
+            early = original(self, "makespan_ticks", **{**options, "incumbent": result.values})
+            result.values = early.values
+            result.values[next(iter(self.objectives["makespan_ticks"]))] = self.problem.horizon
+        return result
+
+    monkeypatch.setattr(SchedulingMilp, "solve_pass", controlled)
+    result = solve_decomposed(prepared(independent(a=80, b=20)))
+    assert result.status == "OPTIMAL"
+    assert result.objectives["makespan_ticks"] == 80
+    assert ("C02", "makespan_ticks") not in attempts
+    assert ("C02", "start_sum_ticks") in attempts
+
+
+def test_open_global_makespan_gap_retries_before_next_objective(monkeypatch):
+    original = SchedulingMilp.solve_pass
+    attempts = []
+
+    def limited_once(self, objective, **options):
+        attempts.append(objective)
+        result = original(self, objective, **options)
+        if objective == "makespan_ticks" and attempts.count(objective) <= 2:
+            result.record.update(proven_optimal=False, highs_status="kTimeLimit", bound=0)
+        return result
+
+    monkeypatch.setattr(SchedulingMilp, "solve_pass", limited_once)
+    result = solve_decomposed(prepared(independent()))
+    assert result.status == "OPTIMAL"
+    assert attempts.count("makespan_ticks") >= 3
+    assert attempts.index("start_sum_ticks") > max(i for i, v in enumerate(attempts) if v == "makespan_ticks")
+
+
 def test_split_stays_inside_component():
     data = example({"A": 150, "B": 10}, lines=3)
     for line, skus in zip(data["lines"], ["A", "A", "B"]):
