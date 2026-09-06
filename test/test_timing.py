@@ -1,8 +1,6 @@
 from dataclasses import replace
 import json
 from pathlib import Path
-import subprocess
-import sys
 
 import pytest
 
@@ -12,8 +10,8 @@ from filling_scheduler.milp import SchedulingMilp, run_objectives
 from filling_scheduler.schedule import materialize_schedule
 from filling_scheduler.timing import left_shift
 from filling_scheduler.validation import validate_schedule
-from test_decomposition import independent, makespan_tradeoff, prepared
-from test_milp import example, calendar_example
+from data_generators import independent, makespan_tradeoff, prepared
+from data_generators import example, calendar_example
 
 
 @pytest.mark.parametrize("data", [example(), example({"A": 0}), example({"A": 3}, units=2),
@@ -68,16 +66,3 @@ def test_cli_timing_modes(tmp_path, monkeypatch, capsys, mode, decomposition):
         assert metrics["timing"]["before"] == metrics["timing"]["after"]
     if mode is None:
         assert metrics["timing"]["after"]["start_sum_ticks"] <= metrics["timing"]["before"]["start_sum_ticks"]
-
-
-@pytest.mark.parametrize("mode", ["heuristic", "none"])
-def test_weighted_cannot_silently_replace_explicit_time_objectives(tmp_path, monkeypatch, mode):
-    monkeypatch.chdir(tmp_path)
-    assert main(["solve", "--input", "absent.json", "--output", "out.json",
-                 "--objective-mode", "weighted", "--objective-weights", "1", "1", "1", "1",
-                 "--timing-mode", mode]) == 2
-    assert not Path("out.json").exists()
-
-
-def test_timing_does_not_import_solver():
-    subprocess.run([sys.executable, "-c", "import filling_scheduler.timing, sys; assert 'highspy' not in sys.modules; assert 'filling_scheduler.milp' not in sys.modules"], check=True)

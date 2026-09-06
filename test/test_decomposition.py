@@ -7,36 +7,10 @@ from filling_scheduler.decomposition import build_components, merge_runs, solve_
 from filling_scheduler.errors import ApplicationError
 from filling_scheduler.input import load_input
 from filling_scheduler.milp import SchedulingMilp
-from filling_scheduler.models import SchedulingInput
 from filling_scheduler.problem import prepare_problem
 from filling_scheduler.schedule import materialize_schedule
 from filling_scheduler.validation import validate_schedule
-from test_milp import example, calendar_example
-
-
-def prepared(data):
-    return prepare_problem(SchedulingInput.model_validate(data))
-
-
-def independent(a=30, b=40):
-    data = example({"A": a, "B": b})
-    for line, sku in zip(data["lines"], "AB"):
-        line["eligibleProducts"] = [p for p in line["eligibleProducts"] if p["product"] == sku]
-    return data
-
-
-def makespan_tradeoff():
-    # Component A/B prefers A-B for its own makespan (240), but B-A for starts
-    # (90 instead of 180). Component C sets global makespan to 300.
-    data = example({"A": 120, "B": 60, "C": 240})
-    data["planningHorizon"]["end"] = "2026-08-17T13:00:00+00:00"
-    data["calendar"]["shifts"] = [{"code": "DAY", "startTime": "08:00", "endTime": "13:00",
-                                   "breaks": [{"startTime": "10:00", "endTime": "11:00"}]}]
-    for line, skus in zip(data["lines"], ["AB", "C"]):
-        line["eligibleProducts"] = [p for p in line["eligibleProducts"] if p["product"] in skus]
-    data["changeoverMatrixMinutes"]["A"]["B"] = 30
-    data["changeoverMatrixMinutes"]["B"]["A"] = 30
-    return data
+from data_generators import example, calendar_example, independent, makespan_tradeoff, prepared
 
 
 def test_actual_partition(input_path):

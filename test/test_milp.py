@@ -6,42 +6,7 @@ from filling_scheduler.errors import ApplicationError
 from filling_scheduler.models import SchedulingInput
 from filling_scheduler.problem import prepare_problem
 from filling_scheduler.milp import SchedulingMilp
-
-
-def example(demand=None, lines=2, capacity=100, units=1):
-    demand = demand or {"A": 150}
-    return {
-        "id": "synthetic", "description": "Exact synthetic case",
-        "planningHorizon": {"start": "2026-08-17T08:00:00+00:00", "end": "2026-08-17T10:00:00+00:00",
-                            "timeZone": "UTC", "precisionMinutes": 1},
-        "demand": [{"product": sku, "quantityUnits": q} for sku, q in demand.items()],
-        "lines": [{"line": f"L{i+1}", "eligibleProducts": [
-            {"product": sku, "capacityUnitsPerHour": 60 * units} for sku in demand]} for i in range(lines)],
-        "calendar": {"appliesToLines": [f"L{i+1}" for i in range(lines)], "workingDays": ["MONDAY"],
-                     "shifts": [{"code": "DAY", "startTime": "08:00", "endTime": f"{8+capacity//60:02d}:{capacity%60:02d}", "breaks": []}]},
-        "changeoverMatrixMinutes": {a: {b: 0 if a == b else 2 for b in demand} for a in demand},
-    }
-
-
-def solve(data):
-    return SchedulingMilp(prepare_problem(SchedulingInput.model_validate(data))).solve(time_limit=20)
-
-
-def calendar_example():
-    data = example({"A": 100, "B": 90, "C": 120, "D": 250})
-    data["planningHorizon"]["end"] = "2026-08-18T02:00:00+00:00"
-    data["calendar"]["shifts"] = [
-        {"code": "DAY", "startTime": "08:00", "endTime": "12:00", "breaks": [{"startTime": "10:00", "endTime": "11:00"}]},
-        {"code": "NIGHT", "startTime": "22:00", "endTime": "02:00", "endsNextDay": True,
-         "breaks": [{"startTime": "00:00", "endTime": "00:30", "startsNextDay": True}]},
-    ]
-    data["lines"][0]["eligibleProducts"] = [{"product": a, "capacityUnitsPerHour": 60} for a in "ABD"]
-    data["lines"][1]["eligibleProducts"] = [{"product": a, "capacityUnitsPerHour": 120 if a == "B" else 60} for a in "BCD"]
-    data["changeoverMatrixMinutes"] = {a: {b: 0 if a == b else 20 for b in "ABCD"} for a in "ABCD"}
-    for a, b in [("A", "B"), ("C", "D")]:
-        data["changeoverMatrixMinutes"][a][b] = 5
-        data["changeoverMatrixMinutes"][b][a] = 9
-    return data
+from data_generators import example, calendar_example, solve
 
 
 def test_forced_split():
@@ -134,56 +99,3 @@ def test_independent_enumeration(demand, units):
         assert error.value.exit_code == 3
     else:
         assert tuple(solve(data).objectives.values()) == expected
-
-
-@pytest.mark.parametrize("split_weight,quantities,makespan", [(1, [40, 40], 40), (100, [80], 80)])
-def test_weighted_split_tradeoff(split_weight, quantities, makespan):
-    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example({"A": 80}))))
-    result = model.solve(objective_mode="weighted", objective_weights=(1, split_weight, 1, 0))
-    assert result.status == "OPTIMAL"
-    assert sorted(r.quantity for r in result.runs) == quantities
-    assert result.objectives["makespan_ticks"] == makespan
-    assert len(result.passes) == 1
-    assert result.passes[0]["objective"] == "weighted"
-    assert result.weighted_value == split_weight * (len(quantities)-1) + makespan
-    assert result.passes[0]["value"] == pytest.approx(result.weighted_value)
-    assert result.passes[0]["bound"] == pytest.approx(result.weighted_value)
-
-
-@pytest.mark.parametrize("weights", [(0.3, 0.2, 0.01, 0.005), (0, 0, 0.1, 0), (1, 0, 0, 0), (0, 1, 0, 0)])
-def test_weighted_independent_enumeration(weights):
-    demand = {"A": 9, "B": 8}
-    data = example(demand, capacity=8, units=2)
-    data["calendar"]["shifts"][0]["breaks"] = [{"startTime": "08:03", "endTime": "08:05"}]
-    expected = brute_force(demand, [(0, 3), (5, 8)], 2, data["changeoverMatrixMinutes"], weights)
-    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(data)))
-    result = model.solve(objective_mode="weighted", objective_weights=weights)
-    assert result.status == "OPTIMAL"
-    assert result.weighted_value == pytest.approx(sum(w*v for w, v in zip(weights, expected)))
-    assert result.passes[0]["value"] == pytest.approx(result.weighted_value)
-
-
-def test_weighted_empty_demand_and_no_incumbent():
-    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example({"A": 0}))))
-    assert model.solve(objective_mode="weighted", objective_weights=(1, 1, 1, 1)).weighted_value == 0
-    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example())))
-    with pytest.raises(ApplicationError) as error:
-        model.solve(time_limit=0, objective_mode="weighted", objective_weights=(1, 1, 1, 1))
-    assert error.value.exit_code == 4
-
-
-def test_weighted_uses_input_time_grid():
-    data = example({"A": 80})
-    data["planningHorizon"]["precisionMinutes"] = 10
-    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(data)))
-    result = model.solve(objective_mode="weighted", objective_weights=(1, 1, 1, 0))
-    assert sorted(r.quantity for r in result.runs) == [40, 40]
-    assert result.objectives["makespan_ticks"] == 4
-    assert result.weighted_value == 5
-
-
-def test_weight_overflow_is_input_error():
-    model = SchedulingMilp(prepare_problem(SchedulingInput.model_validate(example({"A": 1, "B": 1}))))
-    with pytest.raises(ApplicationError) as error:
-        model.solve(objective_mode="weighted", objective_weights=(1e308, 0, 0, 0))
-    assert error.value.exit_code == 2

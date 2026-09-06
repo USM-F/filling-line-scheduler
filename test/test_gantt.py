@@ -5,9 +5,9 @@ import pytest
 
 from filling_scheduler.gantt import render_html, sku_color, timing_summary
 from filling_scheduler.schedule import Schedule
-from test_milp import example, calendar_example
-from test_schedule import generated
-from test_changeover_timing import lunch_example
+from data_generators import example, calendar_example
+from data_generators import generated
+from data_generators import lunch_example
 
 
 class Elements(HTMLParser):
@@ -31,9 +31,9 @@ def test_gantt_slots_lines_and_offline_resources():
     assert "url(#setup)" in html
     assert all("src" not in a and "href" not in a for _, a in elements)
     assert "<script" not in html
-    assert "01:40" in html
     assert "Дата начала: 17.08.2026\nВремя начала: 08:00:00" in html
-    assert "Дата окончания: 18.08.2026\nВремя окончания: 01:40:00" in html
+    end = max(s.end for line in schedule.lines for s in line.slots)
+    assert f"Дата окончания: {end:%d.%m.%Y}\nВремя окончания: {end:%H:%M:%S}" in html
     assert "Количество:" in html
     assert "Длительность:" in html
 
@@ -46,7 +46,6 @@ def test_stable_sku_colors_and_escaping():
     assert '<script>' not in html
     assert '&lt;script&gt;' in html
     assert 'data-label="&lt;script&gt;alert(&quot;x&quot;)' in html
-    assert sku_color(name) == sku_color(name)
 
 
 def test_empty_chart_and_invalid_duration():

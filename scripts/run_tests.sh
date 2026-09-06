@@ -44,7 +44,6 @@ docker container run --rm --network none \
     -w /workspace \
     -e PYTHONPATH=/workspace/src \
     -e COVERAGE_FILE=/workspace/.cache/.coverage \
-    -e HYPOTHESIS_STORAGE_DIRECTORY=/workspace/.cache/hypothesis \
     "${FLS_IMAGE_REF}" \
     python -m pytest \
         -o cache_dir=/workspace/.cache/pytest \

@@ -31,32 +31,6 @@ def local_time(day: date, clock: str, zone: ZoneInfo) -> datetime:
     return candidates.pop()
 
 
-def changeover_lower_bound(source: SchedulingInput) -> dict:
-    """Structural lower bound in minutes, without solving or assuming calendar feasibility.
-
-    inspect accepts schema-valid inputs before semantic validation, so ambiguous
-    identifiers, missing transitions or uncovered demand yield an unavailable bound.
-    """
-    sku_ids = [d.sku_id for d in source.demand]
-    line_ids = [line.line_id for line in source.lines]
-    if len(set(sku_ids)) != len(sku_ids) or len(set(line_ids)) != len(line_ids):
-        return {"lower_bound_minutes": None, "reason": "Duplicate product or line identifiers"}
-    active = {d.sku_id for d in source.demand if d.demand_units > 0}
-    eligible = [{p.sku_id for p in line.eligible_products if p.sku_id in active} for line in source.lines]
-    if active - set().union(*eligible):
-        return {"lower_bound_minutes": None, "reason": "Active product has no eligible line"}
-    transitions = {(a, b) for products in eligible for a in products for b in products if a != b}
-    matrix = source.changeover_matrix_minutes
-    if any(a not in matrix or b not in matrix[a] for a, b in transitions):
-        return {"lower_bound_minutes": None, "reason": "Missing eligible transition duration"}
-    usable_lines = sum(bool(products) for products in eligible)
-    minimum_count = max(0, len(active) - usable_lines)
-    shortest = min((matrix[a][b] for a, b in transitions), default=0)
-    return {"lower_bound_minutes": minimum_count * shortest, "active_products": len(active),
-            "eligible_lines": usable_lines, "minimum_transition_count": minimum_count,
-            "minimum_transition_minutes": shortest}
-
-
 @dataclass(frozen=True)
 class WorkWindow:
     start: int

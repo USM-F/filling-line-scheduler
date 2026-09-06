@@ -4,14 +4,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 . "${script_dir}/utils.sh"
 
-force_args=()
-for arg in "$@"; do
-    if [[ "${arg}" == '--force' ]]; then
-        force_args=(--force)
-    fi
-done
-
-"${script_dir}/ensure_venv.sh" "${force_args[@]}"
+"${script_dir}/ensure_venv.sh"
 
 log INFO 'Running Filling-Line Scheduler'
 

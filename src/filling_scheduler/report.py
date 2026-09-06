@@ -13,24 +13,6 @@ def encode_report(report: dict[str, Any]) -> str:
     return json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
 
-def write_report(path: Path, contents: str) -> None:
-    """Atomically replace a report after its complete contents are staged."""
-    temporary: Path | None = None
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
-            temporary = Path(stream.name)
-            stream.write(contents)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    except OSError as exc:
-        raise ApplicationError(ErrorCode.OUTPUT_WRITE_ERROR, "Cannot write report", ExitCode.ARTIFACT_ERROR) from exc
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
-
-
 @dataclass
 class StagedArtifact:
     path: Path
