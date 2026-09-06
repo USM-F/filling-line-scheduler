@@ -22,7 +22,7 @@ Requires Linux/WSL, Bash and Docker. The wrapper builds the Python environment o
 
 Existing outputs are replaced after validation, with backups for publication rollback. Logs go to `.logs/`.
 
-Defaults: a shared 300-second solve budget, one thread, zero MIP gap, seed 0. Override with `--time-limit-seconds`, `--threads`, `--mip-gap`, `--seed`; use `--debug` for diagnostics. `OPTIMAL` means both objectives are proven; `FEASIBLE` means a validated incumbent without a complete proof. Makespan is reported, not optimized.
+HiGHS runs with one thread. Defaults: a shared 300-second solve budget, zero MIP gap, seed 0. Override with `--time-limit-seconds`, `--mip-gap`, `--seed`; use `--debug` for diagnostics. `OPTIMAL` means both objectives are proven; `FEASIBLE` means a validated incumbent without a complete proof. Makespan is reported, not optimized.
 
 ```bash
 ./scripts/run.sh inspect --input input.json

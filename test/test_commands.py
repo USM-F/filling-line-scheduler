@@ -191,9 +191,3 @@ def test_all_failure_keeps_previous_bundle(command_case, monkeypatch, capsys, fa
         assert not any(r["event"] == "solve_pass_completed" for r in records)
     else:
         assert next(r for r in records if r["event"] == "schedule_validated")["valid"] is False
-
-
-def test_thread_count_can_change_between_commands(command_case):
-    assert main(command_case) == 0
-    assert main([*command_case, "--threads", "2"]) == 0
-    assert main([*command_case, "--threads", "1"]) == 0

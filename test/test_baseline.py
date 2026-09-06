@@ -22,7 +22,6 @@ def test_supplied_baseline(input_path, capsys):
     assert schedule.summary.total_changeover_minutes == 210
     assert schedule.summary.products_split == 0
     metrics = json.loads(Path(response["metrics"]).read_text())
-    assert metrics["settings"]["threads"] == 1
     assert Path(response["html"]).is_file()
     assert metrics["status"] == "OPTIMAL"
     assert metrics["objectives"]["changeover_ticks"] == 210
